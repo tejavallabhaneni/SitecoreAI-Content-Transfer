@@ -29,8 +29,12 @@ function load(): StoreState {
 
 function persist(state: StoreState) {
   cache = state
-  mkdirSync(dirname(DATA_PATH), { recursive: true })
-  writeFileSync(DATA_PATH, JSON.stringify(state, null, 2))
+  try {
+    mkdirSync(dirname(DATA_PATH), { recursive: true })
+    writeFileSync(DATA_PATH, JSON.stringify(state, null, 2))
+  } catch {
+    // Serverless / read-only filesystems keep state in memory for the instance.
+  }
 }
 
 function tick(state: StoreState) {
