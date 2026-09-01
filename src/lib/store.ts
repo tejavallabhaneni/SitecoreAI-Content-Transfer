@@ -39,7 +39,8 @@ function tick(state: StoreState) {
   for (const job of state.jobs) {
     if (job.status !== "running" || !job.startedAt) continue
     const elapsed = now - new Date(job.startedAt).getTime()
-    const nextProgress = Math.min(99, Math.round((elapsed / RUN_MS) * 100))
+    const computed = Math.min(99, Math.round((elapsed / RUN_MS) * 100))
+    const nextProgress = Math.max(job.progress, computed)
     if (elapsed >= RUN_MS) {
       if (job.failOnComplete) {
         job.status = "error"
