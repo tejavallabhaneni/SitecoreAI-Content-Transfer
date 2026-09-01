@@ -36,6 +36,13 @@ npm run build
 npm start
 ```
 
+## Production
+
+- GitHub: https://github.com/tejavallabhaneni/SitecoreAI-Content-Transfer
+- Vercel: https://sitecoreai-content-transfer-seven.vercel.app
+
+The project is linked to the GitHub repo. Hobby Deployment Protection on `*.vercel.app` may require a Vercel login. The hostname `sitecoreai-content-transfer.vercel.app` is already assigned to another Vercel team (`Americaneaglecom`) and cannot be claimed with this project.
+
 ## Stack
 
 Next.js App Router, TypeScript, Tailwind CSS, and shadcn/ui.
