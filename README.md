@@ -39,9 +39,10 @@ npm start
 ## Production
 
 - GitHub: https://github.com/tejavallabhaneni/SitecoreAI-Content-Transfer
-- Vercel: https://sitecoreai-content-transfer-seven.vercel.app
+- Vercel production: https://sitecoreai-content-transfer-seven.vercel.app
+- Vercel alias: https://sitecoreai-content-transfer-app.vercel.app
 
-The project is linked to the GitHub repo. Hobby Deployment Protection on `*.vercel.app` may require a Vercel login. The hostname `sitecoreai-content-transfer.vercel.app` is already assigned to another Vercel team (`Americaneaglecom`) and cannot be claimed with this project.
+The Vercel project `sitecoreai-content-transfer` is linked to this GitHub repository. The hostname `sitecoreai-content-transfer.vercel.app` is already assigned to another Vercel team (`Americaneaglecom`) and cannot be claimed here.
 
 ## Stack
 
