@@ -2,7 +2,8 @@
 // Pure TypeScript with no browser or Next.js imports, so it runs in unit tests.
 
 export type Env = { id: string; name: string; tenant?: string }
-export type TreeNode = { id: string; name: string; path: string; template: string; hasChildren: boolean; icon?: string }
+/** `icons` lists the URLs to try for the item’s Sitecore icon, best first. */
+export type TreeNode = { id: string; name: string; path: string; template: string; hasChildren: boolean; icons?: string[] }
 /** "SingleItem" copies just the item; "ItemAndDescendants" copies it with every item under it. */
 export type Scope = "SingleItem" | "ItemAndDescendants"
 /**
