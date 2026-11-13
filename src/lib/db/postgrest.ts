@@ -20,6 +20,11 @@ export type TransferRow = {
   last_error: string | null
   created_at: string
   updated_at: string
+  preflight_details?: unknown
+  preflight_verified_at?: string | null
+  approved_at?: string | null
+  worker_id?: string | null
+  attempts?: number
 }
 
 function config(): { base: string; key: string } {
@@ -35,7 +40,7 @@ function config(): { base: string; key: string } {
   return { base: url.origin, key }
 }
 
-async function db<T>(
+export async function db<T>(
   path: string,
   init: { method?: string; body?: unknown; prefer?: string } = {},
 ): Promise<T> {
@@ -93,4 +98,53 @@ export async function createTransfer(input: {
   })
   if (!result[0]) throw new Error("Database did not return a transfer record")
   return result[0]
+}
+
+
+export async function storePreflight(owner: string, id: string, report: unknown): Promise<TransferRow | null> {
+  const rows = await db<TransferRow[]>(
+    `transfer_jobs?id=eq.${encodeURIComponent(id)}&owner_login=eq.${ownerQuery(owner)}&status=eq.pending_preflight`,
+    {
+      method: "PATCH",
+      body: { preflight_details: report, preflight_verified_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+      prefer: "return=representation",
+    },
+  )
+  return rows[0] ?? null
+}
+
+export async function approvePreflight(owner: string, id: string, checkedAt: string): Promise<TransferRow | null> {
+  const rows = await db<TransferRow[]>(
+    `transfer_jobs?id=eq.${encodeURIComponent(id)}&owner_login=eq.${ownerQuery(owner)}&status=eq.pending_preflight&preflight_verified_at=eq.${encodeURIComponent(checkedAt)}`,
+    {
+      method: "PATCH",
+      body: { approved_at: new Date().toISOString(), status: "queued", updated_at: new Date().toISOString() },
+      prefer: "return=representation",
+    },
+  )
+  return rows[0] ?? null
+}
+
+export async function claimTransfer(worker: string): Promise<TransferRow | null> {
+  const rows = await db<TransferRow[]>("rpc/claim_next_transfer_job", {
+    method: "POST",
+    body: { worker_name: worker },
+  })
+  return rows[0] ?? null
+}
+
+export async function workerUpdate(
+  jobId: string,
+  worker: string,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  const rows = await db<TransferRow[]>(
+    `transfer_jobs?id=eq.${encodeURIComponent(jobId)}&worker_id=eq.${encodeURIComponent(worker)}&status=eq.running`,
+    {
+      method: "PATCH",
+      body: { ...patch, updated_at: new Date().toISOString() },
+      prefer: "return=representation",
+    },
+  )
+  if (rows.length !== 1) throw new Error("Worker lost exclusive job ownership")
 }
