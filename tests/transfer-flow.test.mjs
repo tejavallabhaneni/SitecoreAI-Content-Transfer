@@ -242,3 +242,14 @@ test("import states", () => {
   assert.equal(importState({ state: "Error", error: "BlobNotFound" }), "done")
   assert.equal(importState({ state: "Error", error: "boom" }), "failed")
 })
+
+test("templates: a template the lookup can't find even in From is not reported missing", async () => {
+  const fake = {
+    pollMs: 0,
+    item: async (env, path) => ({ id: `id-${path}`, path, templateId: "unlookupable", templateName: "Headless Tenant" }),
+    children: async () => [],
+    templateExists: async () => false,
+  }
+  const [row] = await reviewPlan(fake, "A", "B", plan(["/sitecore/content/S/P"]))
+  assert.notEqual(row.outcome, "conflict")
+})
