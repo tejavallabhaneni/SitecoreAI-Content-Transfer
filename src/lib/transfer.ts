@@ -33,6 +33,8 @@ export interface Backend {
   item(env: string, path: string): Promise<ItemRef | null>
   /** Whether an item with this ID (here: a template) exists in the environment. */
   templateExists(env: string, templateId: string): Promise<boolean>
+  /** A lighter `children` for comparisons (no icons). Falls back to `children`. */
+  childrenForCheck?(env: string, path: string): Promise<TreeNode[]>
   createTransfer(env: string, transferId: string, trees: DataTree[]): Promise<void>
   transferStatus(env: string, transferId: string): Promise<{ state: string; chunkSets: ChunkSet[] }>
   getChunk(env: string, transferId: string, chunkSetId: string, chunkId: number): Promise<Blob>
@@ -77,15 +79,20 @@ type Sub = { path: string; templateId?: string; template: string }
 /** Every item under `path` (not the item itself), by normalised ID, up to a limit. */
 async function subtree(backend: Backend, env: string, path: string): Promise<{ items: Map<string, Sub>; truncated: boolean }> {
   const items = new Map<string, Sub>()
-  const queue = [path]
+  const list = (folder: string) => backend.childrenForCheck ? backend.childrenForCheck(env, folder) : backend.children(env, folder)
+  let queue = [path]
+  // Several folders at a time, level by level.
   while (queue.length) {
-    const next = queue.shift()!
-    let children: TreeNode[] = []
-    try { children = await backend.children(env, next) } catch { if (next === path) return { items, truncated: false }; continue }
-    for (const child of children) {
-      if (items.size >= SUBTREE_LIMIT) return { items, truncated: true }
-      items.set(normalizeId(child.id), { path: child.path, templateId: child.templateId, template: child.template })
-      if (child.hasChildren) queue.push(child.path)
+    const batch = queue.slice(0, 6)
+    queue = queue.slice(6)
+    const results = await Promise.all(batch.map(folder => list(folder).then(children => ({ folder, children }), () => ({ folder, children: null as TreeNode[] | null }))))
+    for (const { folder, children } of results) {
+      if (!children) { if (folder === path) return { items, truncated: false }; continue }
+      for (const child of children) {
+        if (items.size >= SUBTREE_LIMIT) return { items, truncated: true }
+        items.set(normalizeId(child.id), { path: child.path, templateId: child.templateId, template: child.template })
+        if (child.hasChildren) queue.push(child.path)
+      }
     }
   }
   return { items, truncated: false }
@@ -134,10 +141,16 @@ export async function reviewPlan(backend: Backend, source: string, destination: 
       used.set(key, entry)
     }
     const missingTemplates: MissingTemplate[] = []
-    for (const template of used.values()) if (!(await backend.templateExists(destination, template.id))) missingTemplates.push(template)
+    const templates = [...used.values()]
+    for (let index = 0; index < templates.length; index += 8) {
+      const chunk = templates.slice(index, index + 8)
+      const exists = await Promise.all(chunk.map(template => backend.templateExists(destination, template.id)))
+      chunk.forEach((template, n) => { if (!exists[n]) missingTemplates.push(template) })
+    }
     if (missingTemplates.length) {
+      const names = missingTemplates.map(t => t.name)
       rows.push({ path, scope, parents: parents.length, outcome: "conflict", missingTemplates,
-        message: `Template${missingTemplates.length === 1 ? "" : "s"} missing in the destination: ${missingTemplates.map(t => t.name).join(", ")}` })
+        message: `${names.length === 1 ? "Template" : `${names.length} templates`} missing in the destination: ${names.slice(0, 3).join(", ")}${names.length > 3 ? ` and ${names.length - 3} more` : ""}` })
       continue
     }
     if (scope !== "ItemAndDescendants") { rows.push({ path, scope, parents: parents.length, outcome }); continue }

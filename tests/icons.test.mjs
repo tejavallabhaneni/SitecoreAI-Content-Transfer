@@ -32,3 +32,10 @@ test("without a host or an icon there is nothing to try", () => {
   assert.deepEqual(iconSources("/-/icon/Office/16x16/document.png", ""), [])
   assert.deepEqual(iconSources("", CM), [])
 })
+
+test("template IDs are looked up as dashed GUIDs", async () => {
+  const { asGuid } = await import("../src/lib/marketplace.ts")
+  assert.equal(asGuid("a4c02b3437f94d38a14c0590963567cf"), "a4c02b34-37f9-4d38-a14c-0590963567cf")
+  assert.equal(asGuid("{A4C02B34-37F9-4D38-A14C-0590963567CF}"), "A4C02B34-37F9-4D38-A14C-0590963567CF")
+  assert.equal(asGuid("not-a-guid"), "not-a-guid")
+})
