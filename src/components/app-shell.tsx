@@ -23,7 +23,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
     const active = item.href === "/" ? pathname === "/" : pathname === item.href
     const Icon = item.icon
     return <Link key={item.href} href={item.href} onClick={onNavigate} aria-current={active ? "page" : undefined}
-      className={cn("flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-colors", active ? "bg-brand-tint text-brand-ink" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
+      className={cn("flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-colors", active ? "relative bg-brand-tint text-brand-ink before:absolute before:inset-y-3 before:left-0 before:w-0.5 before:rounded-full before:bg-brand-red" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
       <Icon className="size-4" aria-hidden="true" />{item.label}
     </Link>
   })}</nav>

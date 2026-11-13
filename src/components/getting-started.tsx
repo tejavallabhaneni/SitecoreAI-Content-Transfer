@@ -15,7 +15,7 @@ export function GettingStarted() {
     <section className="surface overflow-hidden" aria-labelledby="start-heading">
       <div className="grid lg:grid-cols-[1.1fr_0.9fr]">
         <div className="flex flex-col items-start justify-center p-6 sm:p-9 lg:p-10">
-          <span className="mb-5 inline-flex items-center gap-2 rounded-full bg-brand-soft px-3 py-1.5 text-xs font-medium text-brand-ink"><ArrowLeftRight className="size-3.5" />Content, where you need it</span>
+          <span className="mb-5 inline-flex items-center gap-2 rounded-full bg-brand-red-soft px-3 py-1.5 text-xs font-medium text-brand-red-ink"><ArrowLeftRight className="size-3.5" />Content, where you need it</span>
           <h2 id="start-heading" className="max-w-md text-3xl leading-tight font-semibold tracking-tight sm:text-4xl">From one environment<br className="hidden sm:block" /> to the next.</h2>
           <p className="mt-4 max-w-md text-sm leading-7 text-muted-foreground">Copy pages and media with a clear plan and a review before anything changes.</p>
           <Link href="/environments" className={cn(buttonVariants({ size: "lg" }), "mt-7 h-11 gap-3 px-5")}>Connect environments<ArrowRight className="size-4" /></Link>
@@ -23,7 +23,7 @@ export function GettingStarted() {
         </div>
         <div className="flex items-center justify-center bg-brand-soft p-6 sm:p-10" aria-hidden="true">
           <div className="w-full max-w-xs">
-            <div className="rounded-xl border border-brand-tint bg-white p-5 shadow-xs"><span className="mb-3 flex size-9 items-center justify-center rounded-lg bg-brand-tint text-primary"><FolderTree className="size-5" /></span><p className="text-xs text-muted-foreground">Copy from</p><p className="mt-1 text-sm font-semibold">Source environment</p><div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground"><span className="h-1.5 w-16 rounded-full bg-brand-tint" /><span>Pages &amp; media</span></div></div>
+            <div className="rounded-xl border border-brand-tint bg-white p-5 shadow-xs"><span className="mb-3 flex size-9 items-center justify-center rounded-lg bg-brand-red-soft text-brand-red-ink"><FolderTree className="size-5" /></span><p className="text-xs text-muted-foreground">Copy from</p><p className="mt-1 text-sm font-semibold">Source environment</p><div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground"><span className="h-1.5 w-16 rounded-full bg-brand-tint" /><span>Pages &amp; media</span></div></div>
             <div className="flex h-12 items-center justify-center"><span className="flex size-8 items-center justify-center rounded-full border border-brand-tint bg-white text-primary"><ArrowRight className="size-4 rotate-90" /></span></div>
             <div className="flex items-center gap-3 rounded-xl border border-brand-tint bg-white p-5 shadow-xs"><span className="flex size-9 items-center justify-center rounded-lg bg-brand-tint text-primary"><Server className="size-5" /></span><div><p className="text-xs text-muted-foreground">Copy to</p><p className="mt-1 text-sm font-semibold">Destination environment</p></div></div>
           </div>

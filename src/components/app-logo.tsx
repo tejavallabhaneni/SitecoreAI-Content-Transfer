@@ -1,8 +1,8 @@
 import Image from "next/image"
 
 export function AppLogo() {
-  return <span className="flex items-center gap-3">
-    <Image src="/brand/content-transfer.svg" width={36} height={36} alt="" unoptimized className="size-9 shrink-0" />
-    <span><span className="block text-sm font-semibold tracking-tight text-foreground">Content Transfer</span><span className="block text-xs text-muted-foreground">for SitecoreAI</span></span>
+  return <span className="flex flex-col items-start gap-1">
+    <Image src="/brand/sitecoreai-logo.svg" width={1791} height={302} alt="SitecoreAI" unoptimized className="h-[27px] w-40 object-contain object-left" />
+    <span className="pl-8 text-xs font-medium tracking-wide text-muted-foreground">Content Transfer</span>
   </span>
 }
