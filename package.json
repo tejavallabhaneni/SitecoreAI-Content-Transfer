@@ -4,9 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/generate-notices.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "notices": "node scripts/generate-notices.mjs",
     "build:worker": "tsc -p tsconfig.worker.json",
     "worker:start": "node dist-worker/scripts/worker.js"
   },

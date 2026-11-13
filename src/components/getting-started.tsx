@@ -4,9 +4,9 @@ import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 const steps = [
-  { icon: Server, title: "Connect", description: "Choose the environment to copy from and the environment to copy to." },
-  { icon: FolderTree, title: "Choose content", description: "Select the pages or media you want to move. Include child items when needed." },
-  { icon: ClipboardCheck, title: "Review & transfer", description: "Check the plan, approve the changes, and follow the transfer progress." },
+  { icon: Server, title: "Connect", tone: "border-t-blue-500", iconTone: "bg-brand-tint text-brand-ink", description: "Choose the environment to copy from and the environment to copy to." },
+  { icon: FolderTree, title: "Choose content", tone: "border-t-teal-500", iconTone: "bg-teal-50 text-teal-800", description: "Select the pages or media you want to move. Include child items when needed." },
+  { icon: ClipboardCheck, title: "Review & transfer", tone: "border-t-red-500", iconTone: "bg-brand-red-soft text-brand-red-ink", description: "Check the plan, approve the changes, and follow the transfer progress." },
 ]
 
 export function GettingStarted() {
@@ -21,7 +21,7 @@ export function GettingStarted() {
           <Link href="/environments" className={cn(buttonVariants({ size: "lg" }), "mt-7 h-11 gap-3 px-5")}>Connect environments<ArrowRight className="size-4" /></Link>
           <p className="mt-3 text-xs text-muted-foreground">Start with a source and a destination.</p>
         </div>
-        <div className="flex items-center justify-center bg-brand-soft p-6 sm:p-10" aria-hidden="true">
+        <div className="flex items-center justify-center bg-linear-to-br from-red-50 via-indigo-50 to-blue-100 p-6 sm:p-10" aria-hidden="true">
           <div className="w-full max-w-xs">
             <div className="rounded-xl border border-brand-tint bg-white p-5 shadow-xs"><span className="mb-3 flex size-9 items-center justify-center rounded-lg bg-brand-red-soft text-brand-red-ink"><FolderTree className="size-5" /></span><p className="text-xs text-muted-foreground">Copy from</p><p className="mt-1 text-sm font-semibold">Source environment</p><div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground"><span className="h-1.5 w-16 rounded-full bg-brand-tint" /><span>Pages &amp; media</span></div></div>
             <div className="flex h-12 items-center justify-center"><span className="flex size-8 items-center justify-center rounded-full border border-brand-tint bg-white text-primary"><ArrowRight className="size-4 rotate-90" /></span></div>
@@ -31,7 +31,7 @@ export function GettingStarted() {
       </div>
     </section>
     <section aria-labelledby="steps-heading"><h2 id="steps-heading" className="mb-4 text-lg font-semibold">Three steps. One clear workflow.</h2>
-      <div className="grid gap-4 md:grid-cols-3">{steps.map((step, index) => <div key={step.title} className="surface p-5"><div className="mb-4 flex items-center justify-between"><step.icon className="size-5 text-primary" aria-hidden="true" /><span className="text-xs font-medium text-muted-foreground">0{index + 1}</span></div><h3 className="font-semibold">{step.title}</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{step.description}</p></div>)}</div>
+      <div className="grid gap-4 md:grid-cols-3">{steps.map((step, index) => <div key={step.title} className={cn("surface border-t-[3px] p-5", step.tone)}><div className="mb-4 flex items-center justify-between"><span className={cn("flex size-10 items-center justify-center rounded-xl", step.iconTone)}><step.icon className="size-5" aria-hidden="true" /></span><span className="text-xs font-medium text-muted-foreground">0{index + 1}</span></div><h3 className="font-semibold">{step.title}</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{step.description}</p></div>)}</div>
     </section>
     <p className="flex items-center gap-2 text-xs text-muted-foreground"><Check className="size-4 text-primary" aria-hidden="true" />Your content and transfer history stay in Sitecore.</p>
   </div>

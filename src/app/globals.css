@@ -137,7 +137,7 @@
   }
 }
 
-/* Palette and sizing follow Sitecore's public Blok theme registry. */
+/* Independent app layout with blue/red accents and a compact Inter font scale. */
 @layer components {
   .page-title { @apply text-2xl font-semibold tracking-tight sm:text-3xl; }
   .page-description { @apply mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground; }
