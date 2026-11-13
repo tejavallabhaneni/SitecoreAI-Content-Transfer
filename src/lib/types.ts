@@ -59,6 +59,8 @@ export type TransferJob = {
   history?: { Name: string; Date: string }[]
   plan?: { itemPaths: string[]; scope: "SingleItem" | "ItemAndDescendants"; mergeStrategy: "KeepExistingItem" | "OverrideExistingItem" }
   stage?: string
+  /** Progress-timeline phase for tab-local drafts: 1 export … 5 done. */
+  phase?: number
   exportOperationId?: string
 }
 

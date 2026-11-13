@@ -17,7 +17,11 @@ export async function POST(request: Request) {
     let data: unknown
     if (body.action === "discover") data = await discoverEnvironments(body.accessToken, body.page ?? 1)
     else if (body.action === "connectSignedIn") data = await connectSignedInEnvironments(body.accessToken, body.sourceId, body.destinationId)
-    else if (body.action === "connect") {
+    else if (body.action === "test") {
+      // Checks one environment's credentials. The token is discarded, never returned.
+      const connection = await connectEnvironment(body.credentials)
+      data = { ok: true, host: new URL(connection.baseUrl).hostname }
+    } else if (body.action === "connect") {
       const input = body.credentials as { source?: unknown; destination?: unknown } | undefined
       const [source, destination] = await Promise.all([connectEnvironment(input?.source), connectEnvironment(input?.destination)])
       data = parseConnections({ source, destination })
