@@ -225,6 +225,28 @@ async function recoverDetails(env: string, items: RawItem[]): Promise<RawItem[]>
   return items.map(item => { const detail = found.get(item.itemId); return detail ? { ...item, icon: item.icon ?? detail.icon, template: item.template ?? detail.template } : item })
 }
 
+/**
+ * Media items: the Authoring API's `thumbnailUrl`, asked per item in one aliased
+ * query. A `/-/media/…?db=master` thumbnail needs a CM sign-in that a framed app
+ * can't send, so this is tried first. Any failure just leaves the other sources.
+ */
+async function mediaThumbnails(env: string, items: RawItem[]): Promise<Map<string, string>> {
+  const thumbs = new Map<string, string>()
+  const media = items.filter(item => /^\/sitecore\/media library\//i.test(item.path) && !item.children?.nodes?.length)
+  for (let index = 0; index < media.length; index += 25) {
+    const chunk = media.slice(index, index + 25)
+    try {
+      const sdkClient = await sdk()
+      const query = `query Thumbs { ${chunk.map((item, n) => `i${n}: item(where: { database: "master", itemId: ${JSON.stringify(item.itemId)} }) { itemId thumbnailUrl }`).join(" ")} }`
+      const result = await race(sdkClient.mutate("xmc.authoring.graphql" as never, { params: { query: { sitecoreContextId: env }, body: { query, variables: {} } } } as never), CALL_TIMEOUT_MS, "Reading thumbnails")
+      let level = record(result)
+      for (let depth = 0; depth < 5 && level && !("i0" in level); depth++) level = record(level.data)
+      chunk.forEach((_, n) => { const found = record(level?.[`i${n}`]); const url = text(found?.thumbnailUrl); if (found?.itemId && url) thumbs.set(String(found.itemId), url) })
+    } catch { /* thumbnails are a nicety */ }
+  }
+  return thumbs
+}
+
 async function toNodes(env: string, items: RawItem[]): Promise<TreeNode[]> {
   const icons = items.map(item => iconText(item.icon))
   const absolute = icons.map(absoluteOrigin).find(Boolean)
@@ -232,8 +254,13 @@ async function toNodes(env: string, items: RawItem[]): Promise<TreeNode[]> {
   const needsHost = icons.some(icon => icon && !/^https?:/i.test(icon))
   const origin = needsHost ? await iconOrigin(env, (items.find(item => iconText(item.icon)) ?? items[0]).itemId) : absolute ?? ""
   if (origin) learnedOrigins.add(origin)
-  return items.map((item, index) => ({ id: item.itemId, name: item.name, path: item.path, template: item.template?.name ?? "",
-    hasChildren: Boolean(item.children?.nodes?.length), icons: iconSources(icons[index], origin) }))
+  const thumbs = await mediaThumbnails(env, items)
+  const absolutize = (url: string) => /^https?:\/\//i.test(url) ? url : origin && url.startsWith("/") ? origin + url : ""
+  return items.map((item, index) => {
+    const thumb = absolutize(thumbs.get(item.itemId) ?? "")
+    return { id: item.itemId, name: item.name, path: item.path, template: item.template?.name ?? "",
+      hasChildren: Boolean(item.children?.nodes?.length), icons: [...new Set([...(thumb ? [thumb] : []), ...iconSources(icons[index], origin)])] }
+  })
 }
 
 export const marketplaceBackend: Backend = {
@@ -308,11 +335,19 @@ export async function iconDiagnostics(env: string, path: string) {
   const sample = items.slice(0, 4)
   const detailed = await recoverDetails(env, sample.map(item => ({ ...item, icon: item.icon })))
   const origin = await iconOrigin(env, (detailed.find(item => iconText(item.icon)) ?? detailed[0])?.itemId ?? "")
-  const schema = await graphqlItem(env, `query Fields { item: __type(name: "Item") { fields { name } } }`, {})
-  const fields = ((record(schema.item)?.fields as unknown[]) ?? []).map(field => text(record(field)?.name)).filter(Boolean)
+  const schema = await graphqlItem(env, `query Fields { item: __type(name: "Item") { fields { name args { name } } } }`, {})
+  const fields = ((record(schema.item)?.fields as unknown[]) ?? []).map(field => {
+    const args = ((record(field)?.args as unknown[]) ?? []).map(arg => text(record(arg)?.name)).filter(Boolean)
+    return text(record(field)?.name) + (args.length ? `(${args.join(", ")})` : "")
+  }).filter(Boolean)
+  const extras: Record<string, { thumbnailUrl: string; url: string; error: string }> = {}
+  for (const item of sample) {
+    const { item: found, errors } = await graphqlItem(env, `query Extra($id: String!) { item(where: { database: "master", itemId: $id }) { thumbnailUrl url } }`, { id: item.itemId })
+    extras[item.itemId] = { thumbnailUrl: iconText(record(found)?.thumbnailUrl), url: iconText(record(found)?.url), error: errors.join("; ") }
+  }
   return {
     preview: previewIds.has(env), origin, tier: startTier.get(env) ?? 0, learned: [...learnedOrigins],
-    items: detailed.map(item => ({ name: item.name, icon: iconText(item.icon), sources: iconSources(iconText(item.icon), origin) })),
+    items: detailed.map(item => ({ name: item.name, icon: iconText(item.icon), sources: iconSources(iconText(item.icon), origin), ...extras[item.itemId] })),
     fields, schemaErrors: schema.errors,
   }
 }
