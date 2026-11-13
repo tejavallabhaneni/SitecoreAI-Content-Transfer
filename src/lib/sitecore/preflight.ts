@@ -1,5 +1,4 @@
 import { type SitecoreEnvironmentConfig, sitecoreRequest } from "./client"
-import { type TransferRow } from "../db/postgrest"
 
 /** Every ancestor must exist with the same ID, or an imported item can be orphaned. */
 export type ItemIdentity = { itemId: string; path: string }
@@ -64,7 +63,7 @@ function parentPaths(path: string): string[] {
 export async function verifyPreflight(
   source: SitecoreEnvironmentConfig,
   target: SitecoreEnvironmentConfig,
-  transfer: Pick<TransferRow, "item_path">,
+  transfer: { item_path: string },
 ): Promise<PreflightReport> {
   if (source.baseUrl === target.baseUrl) throw new Error("Source and destination are identical")
   const sourceItem = await itemAt(source, transfer.item_path)
@@ -90,3 +89,4 @@ export async function verifyPreflight(
     ready: true,
   }
 }
+

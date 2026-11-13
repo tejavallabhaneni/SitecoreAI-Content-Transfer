@@ -27,6 +27,9 @@ import type { HydratedJob, JobStatus, JobSummary } from "@/lib/types"
 type JobsResponse = {
   jobs: HydratedJob[]
   summary: JobSummary
+  page: number
+  totalCount: number
+  connected: boolean
 }
 
 const filters: { id: "all" | JobStatus; label: string }[] = [
@@ -40,7 +43,8 @@ const filters: { id: "all" | JobStatus; label: string }[] = [
 export function JobsDashboard() {
   const [status, setStatus] = useState<"all" | JobStatus>("all")
   const [query, setQuery] = useState("")
-  const url = status === "all" ? "/api/jobs" : `/api/jobs?status=${status}`
+  const [page, setPage] = useState(1)
+  const url = `/api/jobs?page=${page}${status === "all" ? "" : `&status=${status}`}`
   const { data, error, loading, reload } = useApi<JobsResponse>(url, 4000)
 
   const jobs = useMemo(() => {
@@ -58,7 +62,7 @@ export function JobsDashboard() {
     })
   }, [data, query])
 
-  const summary = data?.summary
+  const summary = data?.connected ? data.summary : undefined
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
@@ -66,8 +70,7 @@ export function JobsDashboard() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Transfer jobs</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Move Sitecore content items from a source environment to a target. Review
-            AI field mappings, then run the transfer.
+            Review destination imports from SitecoreAI and prepare transfers between your authoring environments.
           </p>
         </div>
         <Link href="/jobs/new" className={cn(buttonVariants(), "self-start sm:self-auto")}>
@@ -78,7 +81,7 @@ export function JobsDashboard() {
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Queued" value={summary?.queued} hint="Waiting to run" />
-        <StatCard label="Running" value={summary?.running} hint="Publishing items now" />
+        <StatCard label="Running" value={summary?.running} hint="Importing to master" />
         <StatCard label="Success" value={summary?.success} hint="Completed cleanly" />
         <StatCard label="Error" value={summary?.error} hint="Need attention" />
       </div>
@@ -89,7 +92,7 @@ export function JobsDashboard() {
             <div>
               <CardTitle>Recent transfers</CardTitle>
               <CardDescription>
-                Filter by status or search by job name or environment.
+                Native imports and tab-local drafts. Counts reflect this page; source exports and chunk forwarding are not retained in Sitecore import history.
               </CardDescription>
             </div>
             <div className="relative w-full lg:max-w-xs">
@@ -142,7 +145,7 @@ export function JobsDashboard() {
 
           {!loading && !error && jobs.length === 0 ? (
             <div className="px-(--card-spacing) py-12 text-center">
-              <p className="font-medium">No transfers match this view</p>
+              <p className="font-medium">{data?.connected ? "No transfers match this view" : "Connect to view your transfers"}</p>
               <p className="mt-1 text-sm text-muted-foreground">
                 {query
                   ? "Clear the search or pick another status."
@@ -183,11 +186,11 @@ export function JobsDashboard() {
                             {job.target?.name ?? "Unknown target"}
                           </span>
                         </TableCell>
-                        <TableCell>{job.itemIds.length}</TableCell>
+                        <TableCell>{job.itemCount ?? (job.plan ? job.plan.itemPaths.length + " roots" : "—")}</TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-1">
                             <StatusBadge status={job.status} />
-                            {job.status === "running" ? (
+                            {job.status === "running" && job.progressKnown ? (
                               <span className="text-xs text-muted-foreground">
                                 {job.progress}% complete
                               </span>
@@ -225,8 +228,8 @@ export function JobsDashboard() {
                       {job.source?.name ?? "Unknown source"} → {job.target?.name ?? "Unknown target"}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {job.itemIds.length} items · {formatRelative(job.updatedAt)}
-                      {job.status === "running" ? ` · ${job.progress}%` : ""}
+                      {job.itemCount === undefined ? "Item count unavailable" : `${job.itemCount} items`} · {formatRelative(job.updatedAt)}
+                      {job.status === "running" && job.progressKnown ? ` · ${job.progress}%` : ""}
                     </p>
                   </Link>
                 ))}
@@ -236,7 +239,10 @@ export function JobsDashboard() {
         </CardContent>
       </Card>
 
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(old => old - 1)}>Previous</Button>
+        <span className="text-sm text-muted-foreground">Page {page}</span>
+        <Button variant="outline" size="sm" disabled={!data || page * 50 >= data.totalCount} onClick={() => setPage(old => old + 1)}>Next</Button>
         <Button variant="ghost" size="sm" onClick={() => reload()}>
           <RefreshCw />
           Refresh
@@ -267,3 +273,4 @@ function StatCard({
     </Card>
   )
 }
+

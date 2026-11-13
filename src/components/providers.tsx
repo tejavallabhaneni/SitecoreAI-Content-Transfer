@@ -5,14 +5,16 @@ import { ThemeProvider } from "next-themes"
 import { AppShell } from "@/components/app-shell"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { SitecoreSignInProvider } from "@/components/sitecore-sign-in"
 
-export function Providers({ children, demoMode }: { children: React.ReactNode; demoMode: boolean }) {
+export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
-      <TooltipProvider>
-        <AppShell demoMode={demoMode}>{children}</AppShell>
+      <SitecoreSignInProvider><TooltipProvider>
+        <AppShell>{children}</AppShell>
         <Toaster />
-      </TooltipProvider>
+      </TooltipProvider></SitecoreSignInProvider>
     </ThemeProvider>
   )
 }
+

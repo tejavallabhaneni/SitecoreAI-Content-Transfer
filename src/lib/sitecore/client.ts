@@ -9,6 +9,8 @@ export interface SitecoreEnvironmentConfig {
   baseUrl: string
   clientId: string
   clientSecret: string
+  /** Supplied by the current user's in-memory browser connection only. */
+  accessToken?: string
 }
 
 type TokenResponse = { access_token?: unknown; expires_in?: unknown }
@@ -21,7 +23,7 @@ function required(name: string): string {
   return value
 }
 
-function secureOrigin(host: string): string {
+export function secureOrigin(host: string): string {
   let url: URL
   try {
     url = new URL(host.includes("://") ? host : `https://${host}`)
@@ -49,9 +51,10 @@ export function readSitecoreConfig(side: EnvironmentSide): SitecoreEnvironmentCo
 }
 
 /** OAuth token is cached per process, refreshed before expiry, and never logged. */
-export async function getSitecoreToken(config: SitecoreEnvironmentConfig): Promise<string> {
+export async function getSitecoreToken(config: SitecoreEnvironmentConfig, cacheToken = true): Promise<string> {
+  if (config.accessToken) return config.accessToken
   const key = `${config.baseUrl}:${config.clientId}`
-  const existing = tokens.get(key)
+  const existing = cacheToken ? tokens.get(key) : undefined
   if (existing && existing.expiresAt > Date.now()) return existing.token
 
   const response = await fetch("https://auth.sitecorecloud.io/oauth/token", {
@@ -76,7 +79,7 @@ export async function getSitecoreToken(config: SitecoreEnvironmentConfig): Promi
   }
   const expires = typeof body.expires_in === "number" ? body.expires_in : 3600
   const ttlMs = Math.max(0, Math.min(expires - 120, 86_280)) * 1000
-  if (ttlMs > 0) {
+  if (cacheToken && ttlMs > 0) {
     tokens.set(key, { token: body.access_token, expiresAt: Date.now() + ttlMs })
   }
   return body.access_token
@@ -110,3 +113,4 @@ export async function sitecoreRequest(
   }
   return response
 }
+

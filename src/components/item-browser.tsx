@@ -5,6 +5,7 @@ import { AlertCircle, Search } from "lucide-react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -21,9 +22,11 @@ import type { ContentItem } from "@/lib/types"
 const EMPTY_ITEMS: ContentItem[] = []
 
 export function ItemBrowser() {
+  const [path, setPath] = useState("/sitecore/content")
+  const [browsePath, setBrowsePath] = useState("/sitecore/content")
   const [query, setQuery] = useState("")
   const [template, setTemplate] = useState("all")
-  const { data, error, loading, reload } = useApi<{ items: ContentItem[] }>("/api/items")
+  const { data, error, loading, reload } = useApi<{ items: ContentItem[]; hasMore: boolean }>(`/api/items?path=${encodeURIComponent(browsePath)}`)
   const catalog = data?.items ?? EMPTY_ITEMS
 
   const templates = useMemo(() => {
@@ -49,8 +52,7 @@ export function ItemBrowser() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Content items</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Shared catalog used by transfer jobs. Select items when you create a new transfer — this
-          list is for inspection.
+          Browse the connected source authoring environment. Content is read directly from Sitecore.
         </p>
       </div>
 
@@ -58,8 +60,9 @@ export function ItemBrowser() {
         <CardHeader>
           <CardTitle>Catalog</CardTitle>
           <CardDescription>
-            Paths follow the Sitecore content tree. Versions and languages are per item.
+            Showing one folder and up to 50 children. Enter an exact path to inspect a deeper location.
           </CardDescription>
+          <div className="flex gap-2"><Input value={path} onChange={event => setPath(event.target.value)} aria-label="Content folder path" /><Button variant="outline" onClick={() => setBrowsePath(path)}>Browse</Button></div>
           <div className="flex flex-col gap-2 sm:flex-row">
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -116,11 +119,10 @@ export function ItemBrowser() {
           <ul className="divide-y">
             {items.map((item) => (
               <li key={item.id} className="py-4 first:pt-0 last:pb-0">
-                <p className="font-medium">{item.name}</p>
+                <div className="flex items-center justify-between"><p className="font-medium">{item.name}</p><Button variant="ghost" size="sm" onClick={() => { setPath(item.path); setBrowsePath(item.path) }}>Open</Button></div>
                 <p className="truncate font-mono text-xs text-muted-foreground">{item.path}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {item.template} · {item.language} v{item.version} · updated{" "}
-                  {formatDateTime(item.lastModified)}
+                  {item.template}{item.lastModified ? ` · updated ${formatDateTime(item.lastModified)}` : ""}
                 </p>
               </li>
             ))}
@@ -130,3 +132,4 @@ export function ItemBrowser() {
     </div>
   )
 }
+

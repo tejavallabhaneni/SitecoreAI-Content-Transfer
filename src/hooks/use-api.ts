@@ -1,40 +1,41 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
+import { connectionRevision, serverRevision, sessionRead, subscribeConnection } from "@/lib/browser-session"
 
 export function useApi<T>(url: string | null, refreshMs = 0) {
+  const revision = useSyncExternalStore(subscribeConnection, connectionRevision, serverRevision)
+  const requestNumber = useRef(0)
   const [data, setData] = useState<T | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   const reload = useCallback(async () => {
     if (!url) return
+    const requestId = ++requestNumber.current
+    const requestedRevision = connectionRevision()
     try {
-      const res = await fetch(url, { cache: "no-store" })
-      const body = (await res.json().catch(() => null)) as
-        | T
-        | { error?: string }
-        | null
-      if (!res.ok) {
-        const message =
-          body && typeof body === "object" && "error" in body && body.error
-            ? body.error
-            : `Request failed (${res.status})`
-        throw new Error(message)
-      }
-      setData(body as T)
+      const body = await sessionRead<T>(url)
+      if (requestId !== requestNumber.current || requestedRevision !== connectionRevision()) return
+      setData(body)
       setError(null)
     } catch (err) {
+      if (requestId !== requestNumber.current || requestedRevision !== connectionRevision()) return
       setError(err instanceof Error ? err.message : "Something went wrong.")
     } finally {
-      setLoading(false)
+      if (requestId === requestNumber.current && requestedRevision === connectionRevision()) setLoading(false)
     }
   }, [url])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- client data loader
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clear prior user's data when a tab connection changes
+    setData(null)
     void reload()
-  }, [reload])
+    return () => {
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- monotonic request generation, not a DOM ref
+      requestNumber.current++
+    }
+  }, [reload, revision])
 
   useEffect(() => {
     if (!refreshMs || !url) return
@@ -80,3 +81,4 @@ export async function patchJson<T>(url: string, body: unknown): Promise<T> {
   }
   return payload as T
 }
+

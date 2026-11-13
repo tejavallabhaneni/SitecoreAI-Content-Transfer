@@ -8,10 +8,12 @@ const dateTime = new Intl.DateTimeFormat("en", {
 })
 
 export function formatDateTime(iso: string) {
+  if (!iso || Number.isNaN(new Date(iso).getTime())) return "Not provided by Sitecore"
   return dateTime.format(new Date(iso))
 }
 
 export function formatRelative(iso: string) {
+  if (!iso || Number.isNaN(new Date(iso).getTime())) return "Not provided"
   const delta = new Date(iso).getTime() - Date.now()
   const minutes = Math.round(delta / 60_000)
   if (Math.abs(minutes) < 60) return relativeFormatter.format(minutes, "minute")
@@ -31,3 +33,4 @@ export function kindLabel(kind: string) {
   if (kind === "live") return "Live"
   return kind
 }
+

@@ -2,7 +2,8 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useState } from "react"
+import { useState, useSyncExternalStore } from "react"
+import { connectionRevision, isConnected, serverRevision, subscribeConnection } from "@/lib/browser-session"
 import {
   ArrowLeftRight,
   LayoutDashboard,
@@ -26,11 +27,11 @@ const nav = [
   { href: "/environments", label: "Environments", icon: Server },
 ]
 
-function NavLinks({ onNavigate, demoMode }: { onNavigate?: () => void; demoMode: boolean }) {
+function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname()
   return (
     <nav className="flex flex-col gap-1">
-      {(demoMode ? nav : [{ href: "/transfer", label: "Transfer workspace", icon: LayoutDashboard }]).map((item) => {
+      {nav.map((item) => {
         const active =
           item.href === "/"
             ? pathname === "/"
@@ -57,17 +58,17 @@ function NavLinks({ onNavigate, demoMode }: { onNavigate?: () => void; demoMode:
   )
 }
 
-function Brand() {
+function Brand({ darkSurface = true }: { darkSurface?: boolean }) {
   return (
     <Link href="/" className="flex items-center gap-2.5 px-1">
       <span className="flex size-8 items-center justify-center rounded-lg bg-teal-400 text-[#0f1c2e]">
         <ArrowLeftRight className="size-4" />
       </span>
       <span className="min-w-0">
-        <span className="block truncate text-sm font-semibold tracking-tight text-sidebar-foreground">
+        <span className={cn("block truncate text-sm font-semibold tracking-tight", darkSurface ? "text-sidebar-foreground" : "text-foreground")}>
           SitecoreAI Transfer
         </span>
-        <span className="block truncate text-xs text-sidebar-foreground/60">
+        <span className={cn("block truncate text-xs", darkSurface ? "text-sidebar-foreground/60" : "text-muted-foreground")}>
           Content migration
         </span>
       </span>
@@ -75,16 +76,18 @@ function Brand() {
   )
 }
 
-export function AppShell({ children, demoMode }: { children: React.ReactNode; demoMode: boolean }) {
+export function AppShell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false)
+  useSyncExternalStore(subscribeConnection, connectionRevision, serverRevision)
+  const connected = isConnected()
 
   return (
     <div className="flex min-h-full flex-1">
       <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col gap-6 border-r border-sidebar-border bg-sidebar p-4 md:flex">
         <Brand />
-        <NavLinks demoMode={demoMode} />
+        <NavLinks />
         <p className="mt-auto text-xs leading-relaxed text-sidebar-foreground/50">
-          {demoMode ? "Demo data only — no SitecoreAI transfer occurs." : "Authenticated transfer drafts only — execution disabled pending preflight."}
+          Your environments. Native Sitecore history. No application database.
         </p>
       </aside>
 
@@ -98,7 +101,7 @@ export function AppShell({ children, demoMode }: { children: React.ReactNode; de
           >
             <Menu />
           </Button>
-          <Brand />
+          <Brand darkSurface={false} />
         </header>
 
         <Sheet open={open} onOpenChange={setOpen}>
@@ -109,13 +112,18 @@ export function AppShell({ children, demoMode }: { children: React.ReactNode; de
               </SheetTitle>
             </SheetHeader>
             <div className="px-2 pb-4">
-              <NavLinks demoMode={demoMode} onNavigate={() => setOpen(false)} />
+              <NavLinks onNavigate={() => setOpen(false)} />
             </div>
           </SheetContent>
         </Sheet>
 
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3 text-sm sm:px-6 lg:px-8">
+          <span>{connected ? "Connected for this tab" : "Launch the app by connecting your SitecoreAI environments"}</span>
+          <Link href="/environments" className="font-medium text-primary underline underline-offset-4">{connected ? "Manage connection" : "Connect environments"}</Link>
+        </div>
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
       </div>
     </div>
   )
 }
+

@@ -1,112 +1,59 @@
-# Standalone SitecoreAI Content Transfer deployment
+# Deploy the public app to Vercel
 
-**Important:** The application is not production-certified. It requires real
-staging-environment verification before enabling any live transfer worker.
+## Settings
 
-## Prerequisites
+- Framework: Next.js
+- Node.js: 22.x or 24.x
+- Install: `npm ci`
+- Build: `npm run build`
+- Root: repository root
+- Output: Next.js default
 
-- Node.js 22+ and npm for the Next.js web app.
-- A dedicated Supabase PostgreSQL project. Apply `db/schema.sql` then
-  `db/002_worker.sql` from Supabase SQL Editor.
-- A GitHub OAuth App with callback
-  `https://YOUR_APP_HOST/api/auth/github/callback`.
-- GitHub usernames authorized to run this installation (single operator/team).
-- Separate SitecoreAI Environment Automation clients for the source and target,
-  both with Organization Admin/Owner authorization.
-- A secure container host (Azure Container Apps, AWS ECS/Fargate, or a VM)
-  for the **long-running worker**.
+The public workflow requires no database, GitHub OAuth configuration, shared Sitecore credentials or separate worker. Do not configure shared Sitecore automation credentials for public users.
 
-## Web application configuration (Vercel or a trusted Node host)
+`APP_BASE_URL` is optional. Leave it unset to use the request origin, or set the exact production origin such as `https://sitecoreai-ae-content-transfer-app.vercel.app`. A preview deployment needs its own matching origin or the variable omitted. Every API request requires a matching Origin header and JSON content type.
 
-Add these environment variables as **server-only secrets**:
+The `/api/sitecore` route is stateless and has a maximum function duration of 120 seconds. Export polling, chunk forwarding and import polling are separate requests. Binary chunks are streamed from Sitecore source to Sitecore destination without transformation. Hosting-plan duration/memory limits still apply.
 
-| Setting | Purpose |
-| --- | --- |
-| APP_BASE_URL | HTTPS public origin of your deployment |
-| GITHUB_OAUTH_CLIENT_ID | GitHub OAuth application client ID |
-| GITHUB_OAUTH_CLIENT_SECRET | GitHub OAuth application secret |
-| SESSION_SECRET | Random signing string at least 32 characters |
-| ALLOWED_GITHUB_USERS | Comma-separated GitHub logins allowed to use app |
-| SUPABASE_URL | Dedicated project origin |
-| SUPABASE_SERVICE_ROLE_KEY | Service-role credential; never browser-accessible |
-| SITECORE_SOURCE_HOST | Source CM environment hostname |
-| SITECORE_SOURCE_CLIENT_ID | Source environment automation client ID |
-| SITECORE_SOURCE_CLIENT_SECRET | Source automation client secret |
-| SITECORE_DESTINATION_HOST | Destination CM environment hostname |
-| SITECORE_DESTINATION_CLIENT_ID | Destination environment automation client ID |
-| SITECORE_DESTINATION_CLIENT_SECRET | Destination automation client secret |
+## Optional Sitecore sign-in
 
-The hosting system must restrict access to secrets. Never use `NEXT_PUBLIC_`
-for secrets. The application runs with `ENABLE_DEMO_MODE` disabled in
-production. Vercel can host the UI and API, but is not responsible for
-multi-hour migrations.
+See [SITECORE_SIGN_IN.md](SITECORE_SIGN_IN.md). A registered public SPA client, approved API audience/scopes, callback URLs and a live compatibility test are required. Merely signing into the Cloud Portal does not authorize this separate app. Until configured, the UI clearly marks Sitecore sign-in as awaiting registration.
 
-Deploy using the framework's standard Next.js build (`npm ci` and
-`npm run build`). Visit `/transfer`, authenticate via GitHub,
-create a draft for a source content path and run preflight.
+## Public access
 
-## Transfer safety workflow
+1. Deploy this revision.
+2. Verify the production domain opens without Vercel Authentication.
+3. Verify `/`, `/environments`, `/items` and `/jobs/new` render without GitHub login.
+4. Leave private preview deployment protection in place; only the production app needs public access.
+5. Connect two non-production authoring environments using the UI. Organization Admin/Owner permissions are required by Sitecore.
 
-1. The authorized operator creates a job draft (starts in
-   `pending_preflight`; no content moved).
-2. The operator selects **Verify source and destination**. The server
-   queries SitecoreAI Authoring GraphQL for the source item and parent
-   hierarchy in both environments, requiring matching Sitecore item IDs.
-3. The operator reviews the result and explicitly confirms the item path and
-   destination host. Overwrite requires another confirmation.
-4. The job moves to `queued` atomically only after fresh preflight.
-5. The separately deployed worker must have
-   `ENABLE_LIVE_TRANSFERS=true` to claim jobs. It independently rechecks
-   parent IDs before executing the native transfer.
-6. The worker uploads binary chunks, consumes the .raif on the target and
-   polls terminal status. It reports **transfer succeeded**, not **published**.
+The connection form sends credentials to the app's server solely to obtain Sitecore tokens. The server returns the tokens to the current tab's memory, then discards the supplied secrets. API calls carry only that user's connection. No credentials, tokens, content or history are saved in an application database or browser persistent storage. Disconnecting/reloading clears the browser session. Existing Sitecore imports may continue after disconnect.
 
-### Long-running worker (never on Vercel)
+## Smoke tests
 
-Build:
-
-```bash
-docker build -f Dockerfile.worker -t sitecoreai-content-transfer-worker .
+```sh
+curl -f https://YOUR_DOMAIN/api/health
 ```
 
-Deploy the image to a private container service with the same
-SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and source/destination
-Sitecore credentials, plus `ENABLE_LIVE_TRANSFERS=true` **only after** a
-reviewed staging demonstration. Do not expose the worker through a public port.
+Expected health fields include `status: ok`, `mode: public-user-connected`, `applicationDatabaseRequired: false`. `liveTenantValidated: false` correctly records that this revision has not yet been exercised against a real tenant; it is separate from HTTP application health.
 
-You can alternatively run:
+Without a user connection, a POST to `/api/sitecore` must fail without using any installation credentials. Cross-origin requests must fail with 403. Legacy `/api/transfers` routes must return 410 and never access PostgreSQL.
 
-```bash
-npm ci
-npm run build:worker
-ENABLE_LIVE_TRANSFERS=true npm run worker:start
-```
+## First real transfer
 
-Use your hosting platform's secure secret injection rather than command-line
-shell history or committing a .env file.
+1. Use two disposable/non-production authoring environments.
+2. Select one small content root with matching parent IDs in both environments.
+3. Keep existing destination items on the first run.
+4. Run preflight, inspect its results, and approve explicitly.
+5. Observe the export ID, chunk forwarding, file creation and native import completion.
+6. Verify the destination item, field values, languages and references manually.
+7. Reload, reconnect and confirm the import and its state changes appear in native history.
+8. Test a parent-ID mismatch and a permission failure; neither should start an export.
+9. Test interrupted forwarding and verify native state before manually restarting anything.
+10. Publish only through the normal Sitecore workflow when intended.
 
-## Important recovery constraints
+The app does not promise automatic retries, rollback, background forwarding after closing the tab, AI field mapping, or automatic publishing. Delete/tree-replacement operations are unavailable. Transfer package cleanup is left to the environment operator.
 
-The worker's database reservation uses `FOR UPDATE SKIP LOCKED` to avoid
-concurrent execution of the same queued job. **Interrupted jobs are not
-automatically retried**. A running job can become orphaned if a container
-terminates. Reconcile its source export and destination import state using
-Sitecore's APIs before any manual retry to avoid duplicate/destructive imports.
-This is a remaining production-hardening task.
+## Legacy code
 
-The current worker does not yet perform cleanup of source transfer operations
-or destination .raif blobs; follow Sitecore's cleanup requirements and
-retention policy. Until cleanup, recovery, tracing, and staging verification
-are completed, treat the application as pre-release.
-
-## Deployment validation
-
-- Run all CI tests and build both the Next.js app and worker.
-- Verify unauthorized requests are rejected.
-- Verify that failed preflight prevents queueing.
-- Demonstrate a transfer in two disposable SitecoreAI environments.
-- Test parent-ID mismatches, existing items, large media, multilingual items,
-  network interruptions, incomplete imports and worker restart.
-- Verify destination **master** content and its publishing lifecycle.
-- Do not make the repository public until code ownership, historical secrets,
-  a license, and GitHub branch protections are reviewed.
+The old SQL schemas and worker source remain for reference. Do not run database migrations or start the worker for this public deployment. Database-backed routes are retired. Repository history preserves the previous authenticated deployment implementation.

@@ -2,7 +2,6 @@ import type { Metadata } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 
 import { Providers } from "@/components/providers"
-import { demoModeEnabled } from "@/lib/security/demo-mode"
 import "./globals.css"
 
 const geistSans = Geist({
@@ -18,7 +17,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "SitecoreAI Content Transfer",
   description:
-    "Transfer Sitecore content items between XM Cloud environments with AI-assisted field mapping.",
+    "Connect your own SitecoreAI environments, review native transfer history, and transfer content without an application database.",
 }
 
 export default function RootLayout({
@@ -33,8 +32,9 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="flex min-h-full flex-col bg-background text-foreground">
-        <Providers demoMode={demoModeEnabled()}>{children}</Providers>
+        <Providers>{children}</Providers>
       </body>
     </html>
   )
 }
+

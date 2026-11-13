@@ -1,3 +1,7 @@
+# Historical deployment checklist
+
+This file describes the previous database-backed worker architecture. The current public app is documented in [DEPLOYMENT.md](DEPLOYMENT.md) and does not use that database or worker. The historical checklist below is retained for reference.
+
 # Production readiness — work required
 
 ## Status
@@ -50,3 +54,4 @@ publishing. Organization Owner or Organization Admin access is required.
 
 Do not mark this repository production-ready until every blocking item above
 is implemented and demonstrated against test environments.
+
