@@ -27,7 +27,7 @@ export function Troubleshooting({ env, name }: { env: string; name: string }) {
         lines.push("", `• ${item.name}`, `  icon: ${item.icon || "(none)"}`)
         for (const source of item.sources) lines.push(`  ${await loads(source)} ← ${source}`)
         if (!item.sources.length) lines.push("  (no URL to try)")
-        for (const key of ["thumbnailUrl", "url"] as const) {
+        for (const key of ["thumbnailUrl", "url", "previewUrl"] as const) {
           const value = item[key]
           if (!value) { lines.push(`  ${key}: (none)`); continue }
           const absolute = /^https?:/i.test(value) ? value : result.origin && value.startsWith("/") ? result.origin + value : ""

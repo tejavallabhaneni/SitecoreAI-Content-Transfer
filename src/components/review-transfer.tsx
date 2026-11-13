@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { MERGE_OPTIONS, Stepper, resetWizard } from "@/components/transfer-home"
 import { checkDraft, dropFromDraft, startDraft, useSession, type Draft } from "@/lib/session"
-import { approvalsFor, type ReviewOutcome, type ReviewRow } from "@/lib/transfer"
+import { approvalsFor, type ReviewOutcome, type ReviewRow, type SubItem, type SubItemState } from "@/lib/transfer"
 import { cn } from "@/lib/utils"
 
 const outcomes: Record<ReviewOutcome, { label: string; icon: typeof Plus; badge: string; explain: string }> = {
@@ -20,6 +20,7 @@ const outcomes: Record<ReviewOutcome, { label: string; icon: typeof Plus; badge:
 }
 
 function fixFor(message = "") {
+  if (/Template.*missing in the destination/i.test(message)) return "Sitecore can’t import an item whose template isn’t in To. Copy the template (under /sitecore/templates) to To first, for example with serialization, then check again. Or leave this item out."
   if (/different Sitecore item ID|different ID/i.test(message)) return "This item was created separately in each environment, so the IDs don’t match. Rename or delete it in To, or sync it with serialization, then check again."
   if (/Missing required parent/i.test(message)) return "A parent folder isn’t in To yet. Select the parent “with sub-items” too, or copy it first."
   if (/not found/i.test(message)) return "The item isn’t in From any more. Leave it out and pick again."
@@ -47,6 +48,32 @@ function Timeline({ draft }: { draft: Draft }) {
   </ol>
 }
 
+const subTone: Record<SubItemState, { label: string; badge: string }> = {
+  new: { label: "Will be added", badge: "bg-emerald-100 text-emerald-800" },
+  exists: { label: "Already in To", badge: "bg-slate-100 text-slate-800" },
+  differs: { label: "Different item at same path", badge: "bg-rose-100 text-rose-800" },
+}
+
+/** What happens to each sub-item of an item copied with its sub-items. */
+function SubItems({ items, truncated, merge }: { items: SubItem[]; truncated?: boolean; merge: string }) {
+  const count = (state: SubItemState) => items.filter(item => item.state === state).length
+  const [added, existing, differs] = [count("new"), count("exists"), count("differs")]
+  const existingText = merge === "KeepExistingItem" ? "kept as they are" : merge === "OverrideExistingTree" ? "replaced" : "overwritten"
+  if (!items.length) return <p className="mt-2 text-sm text-muted-foreground">It has no sub-items in From.</p>
+  return <div className="mt-2 text-sm">
+    <p><strong>{items.length}{truncated ? "+" : ""} sub-item{items.length === 1 ? "" : "s"}:</strong>{" "}
+      <span className="text-emerald-300">{added} will be added</span>
+      {existing > 0 && <> · {existing} already in To ({existingText})</>}
+      {differs > 0 && <> · <span className="text-rose-300">{differs} with a different item at the same path</span></>}</p>
+    {differs > 0 && merge !== "OverrideExistingTree" && <p className="mt-1 text-xs text-rose-300">A different item already uses that path in To, so the copy would sit next to it with the same name. Rename or remove it in To, or use Replace whole trees.</p>}
+    <details className="mt-2"><summary className="cursor-pointer text-xs font-semibold">Show every sub-item</summary>
+      <ul className="mt-2 max-h-48 space-y-1 overflow-auto">{items.map(item => <li key={item.path} className="flex flex-wrap items-center gap-2 text-xs">
+        <span className={cn("rounded-full px-2 py-0.5 font-semibold", subTone[item.state].badge)}>{subTone[item.state].label}</span><span className="break-all font-mono text-muted-foreground">{item.path}</span></li>)}</ul>
+      {truncated && <p className="mt-1 text-xs text-muted-foreground">Showing the first 2,000 sub-items.</p>}
+    </details>
+  </div>
+}
+
 const scopeLabel = (scope: string) => scope === "ItemAndDescendants" ? "with sub-items" : "item only"
 
 export function ReviewTransfer({ id }: { id: string }) {
@@ -64,7 +91,8 @@ export function ReviewTransfer({ id }: { id: string }) {
 
   const needs = approvalsFor(draft.plan)
   const conflicts = review?.filter(row => row.outcome === "conflict") ?? []
-  const updates = review?.filter(row => row.outcome === "update" || row.outcome === "replace").length ?? 0
+  const updates = (review?.filter(row => row.outcome === "update" || row.outcome === "replace").length ?? 0)
+    + (draft.plan.mergeStrategy === "KeepExistingItem" ? 0 : review?.flatMap(row => row.subItems ?? []).filter(item => item.state === "exists").length ?? 0)
   const removals = review?.flatMap(row => row.removes ?? []) ?? []
   const truncated = review?.some(row => row.removesTruncated) ?? false
   const ready = Boolean(review && !conflicts.length && ackWrite && (!needs.overwrite || ackOverwrite) && (!needs.delete || ackDelete))
@@ -109,8 +137,11 @@ export function ReviewTransfer({ id }: { id: string }) {
         return <li key={row.path} className="rounded-lg border bg-white/5 p-3">
           <div className="flex flex-wrap items-center gap-2"><span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold", tone.badge)}><tone.icon className="size-3" aria-hidden="true" />{tone.label}</span>
             <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs">{scopeLabel(row.scope)}</span><span className="min-w-0 break-all font-mono text-xs">{row.path}</span></div>
-          {row.outcome === "conflict" ? <div className="mt-2 text-sm"><p className="font-semibold">{row.message}</p><p className="mt-1 text-muted-foreground">{fixFor(row.message)}</p></div>
-            : <p className="mt-1.5 text-sm text-muted-foreground">{tone.explain}{row.scope === "ItemAndDescendants" && row.outcome !== "replace" ? " Its sub-items follow the same rule." : ""}</p>}
+          {row.outcome === "conflict" ? <div className="mt-2 text-sm"><p className="font-semibold">{row.message}</p>
+              {row.missingTemplates?.length ? <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">{row.missingTemplates.map(template => <li key={template.id}><span className="font-semibold text-white">{template.name}</span> · used by {template.usedBy} item{template.usedBy === 1 ? "" : "s"} · <span className="font-mono">{template.id}</span></li>)}</ul> : null}
+              <p className="mt-1 text-muted-foreground">{fixFor(row.message)}</p></div>
+            : <p className="mt-1.5 text-sm text-muted-foreground">{tone.explain}</p>}
+          {row.outcome !== "conflict" && row.subItems && <SubItems items={row.subItems} truncated={row.subItemsTruncated} merge={draft.plan.mergeStrategy} />}
           {row.outcome === "replace" && <div className="mt-2 text-sm">{row.removes?.length
             ? <><p className="font-semibold text-rose-300">Deletes {row.removes.length}{row.removesTruncated ? "+" : ""} item{row.removes.length === 1 && !row.removesTruncated ? " in To that isn’t" : "s in To that aren’t"} in From:</p>
               <ul className="mt-1 max-h-32 space-y-0.5 overflow-auto">{row.removes.slice(0, 50).map(path => <li key={path} className="break-all font-mono text-xs text-muted-foreground">{path}</li>)}</ul>

@@ -107,14 +107,14 @@ async function call<T>(kind: "query" | "mutate", operation: string, env: string,
   return unwrap<T>(await race(promise as Promise<unknown>, timeout, operation), operation)
 }
 
-type RawItem = { itemId: string; name: string; path: string; icon?: unknown; template?: { name?: string } | null; children?: { nodes?: unknown[] } | null }
+type RawItem = { itemId: string; name: string; path: string; icon?: unknown; template?: { name?: string; templateId?: string } | null; children?: { nodes?: unknown[] } | null }
 
 // Richest first. An item whose template is missing (an all-zeros template ID)
 // makes `template` and `icon` fail for its whole folder, so the tree steps down
 // and keeps whatever the richer attempt did return. A field an environment's
 // schema doesn't have is skipped for that environment from then on.
-const HAS_CHILDREN = "children(first: 1) { nodes { itemId } }"
-const TIERS = [`itemId name path icon template { name } ${HAS_CHILDREN}`, `itemId name path template { name } ${HAS_CHILDREN}`, `itemId name path ${HAS_CHILDREN}`]
+const HAS_CHILDREN = "children(first: 1, includeHiddenItems: true) { nodes { itemId } }"
+const TIERS = [`itemId name path icon template { name templateId } ${HAS_CHILDREN}`, `itemId name path template { name templateId } ${HAS_CHILDREN}`, `itemId name path ${HAS_CHILDREN}`]
 const PAGE = 500
 const startTier = new Map<string, number>()
 const brokenTemplate = (message: string) => /00000000-0000-0000-0000-000000000000/.test(message) || (/template/i.test(message) && /(does ?n[o']t exist|access rights)/i.test(message))
@@ -183,7 +183,7 @@ async function childItems(env: string, path: string): Promise<{ items: RawItem[]
   let richer = new Map<string, RawItem>()
   let lastError = ""
   for (let tier = startTier.get(env) ?? 0; tier < TIERS.length; tier++) {
-    const { item, errors } = await graphqlItem(env, `query Children($path: String!) { item(where: { database: "master", path: $path }) { itemId children(first: ${PAGE}) { nodes { ${TIERS[tier]} } } } }`, { path })
+    const { item, errors } = await graphqlItem(env, `query Children($path: String!) { item(where: { database: "master", path: $path }) { itemId children(first: ${PAGE}, includeHiddenItems: true) { nodes { ${TIERS[tier]} } } } }`, { path })
     const nodes = ((record(item)?.children as RawItem["children"])?.nodes ?? []).filter((node): node is RawItem => Boolean(record(node)?.itemId))
     const merged = nodes.map(node => ({ ...richer.get(node.itemId), ...node, icon: node.icon ?? richer.get(node.itemId)?.icon, template: node.template ?? richer.get(node.itemId)?.template }))
     if (!errors.length) {
@@ -208,7 +208,7 @@ async function childItems(env: string, path: string): Promise<{ items: RawItem[]
 async function recoverDetails(env: string, items: RawItem[]): Promise<RawItem[]> {
   const tier = startTier.get(env) ?? 0
   if (tier >= 2) return items
-  const fields = tier === 0 ? "itemId icon template { name }" : "itemId template { name }"
+  const fields = tier === 0 ? "itemId icon template { name templateId }" : "itemId template { name templateId }"
   const missing = items.filter(item => !item.template?.name || (tier === 0 && !iconText(item.icon)))
   const found = new Map<string, RawItem>()
   for (let index = 0; index < missing.length; index += 25) {
@@ -258,7 +258,7 @@ async function toNodes(env: string, items: RawItem[]): Promise<TreeNode[]> {
   const absolutize = (url: string) => /^https?:\/\//i.test(url) ? url : origin && url.startsWith("/") ? origin + url : ""
   return items.map((item, index) => {
     const thumb = absolutize(thumbs.get(item.itemId) ?? "")
-    return { id: item.itemId, name: item.name, path: item.path, template: item.template?.name ?? "",
+    return { id: item.itemId, name: item.name, path: item.path, template: item.template?.name ?? "", templateId: item.template?.templateId || undefined,
       hasChildren: Boolean(item.children?.nodes?.length), icons: [...new Set([...(thumb ? [thumb] : []), ...iconSources(icons[index], origin)])] }
   })
 }
@@ -271,10 +271,18 @@ export const marketplaceBackend: Backend = {
     return toNodes(env, fellBack ? await recoverDetails(env, items) : items)
   },
   async item(env, path) {
-    const { item, errors } = await graphqlItem(env, `query Item($path: String!) { item(where: { database: "master", path: $path }) { itemId path } }`, { path })
+    let { item, errors } = await graphqlItem(env, `query Item($path: String!) { item(where: { database: "master", path: $path }) { itemId path template { templateId name } } }`, { path })
+    // An item whose template is broken (or a schema without template IDs) is still looked up by ID and path.
+    if (errors.length && (brokenTemplate(errors.join(" ")) || schemaGap(errors.join(" ")))) ({ item, errors } = await graphqlItem(env, `query Item($path: String!) { item(where: { database: "master", path: $path }) { itemId path } }`, { path }))
     const found = record(item)
     if (!found && errors.length) throw new Error(`SitecoreAI couldn’t check ${path}: ${errors[0]}`)
-    return found ? { id: String(found.itemId), path: String(found.path) } : null
+    const template = record(found?.template)
+    return found ? { id: String(found.itemId), path: String(found.path), templateId: text(template?.templateId) || undefined, templateName: text(template?.name) || undefined } : null
+  },
+  async templateExists(env, templateId) {
+    const { item, errors } = await graphqlItem(env, `query Template($id: ID!) { item(where: { database: "master", itemId: $id }) { itemId } }`, { id: templateId })
+    if (!item && errors.length) throw new Error(`SitecoreAI couldn’t check template ${templateId}: ${errors[0]}`)
+    return Boolean(record(item)?.itemId)
   },
   async createTransfer(env, transferId, trees) {
     await call("mutate", "xmc.contentTransfer.createContentTransfer", env, { body: { transferId, configuration: { dataTrees: trees } } })
@@ -340,10 +348,22 @@ export async function iconDiagnostics(env: string, path: string) {
     const args = ((record(field)?.args as unknown[]) ?? []).map(arg => text(record(arg)?.name)).filter(Boolean)
     return text(record(field)?.name) + (args.length ? `(${args.join(", ")})` : "")
   }).filter(Boolean)
-  const extras: Record<string, { thumbnailUrl: string; url: string; error: string }> = {}
+  const extras: Record<string, { thumbnailUrl: string; url: string; previewUrl: string; error: string }> = {}
   for (const item of sample) {
-    const { item: found, errors } = await graphqlItem(env, `query Extra($id: String!) { item(where: { database: "master", itemId: $id }) { thumbnailUrl url } }`, { id: item.itemId })
-    extras[item.itemId] = { thumbnailUrl: iconText(record(found)?.thumbnailUrl), url: iconText(record(found)?.url), error: errors.join("; ") }
+    const { item: found, errors } = await graphqlItem(env, `query Extra($id: ID!) { item(where: { database: "master", itemId: $id }) { thumbnailUrl url } }`, { id: item.itemId })
+    let previewUrl = ""
+    const preview = previewIds.get(env)
+    if (preview) {
+      try {
+        const sdkClient = await sdk()
+        const result = await race(sdkClient.mutate("xmc.preview.graphql" as never, { params: { query: { sitecoreContextId: preview },
+          body: { query: "query Media($path: String!, $language: String!) { item(path: $path, language: $language) { url { url } } }", variables: { path: item.itemId, language: "en" } } } } as never), 8000, "Preview media URL")
+        let level = record(result)
+        for (let depth = 0; depth < 5 && level && !("item" in level); depth++) level = record(level.data)
+        previewUrl = text(record(record(level?.item)?.url)?.url)
+      } catch (error) { previewUrl = `(error: ${message(error)})` }
+    }
+    extras[item.itemId] = { thumbnailUrl: iconText(record(found)?.thumbnailUrl), url: iconText(record(found)?.url), previewUrl, error: errors.join("; ") }
   }
   return {
     preview: previewIds.has(env), origin, tier: startTier.get(env) ?? 0, learned: [...learnedOrigins],

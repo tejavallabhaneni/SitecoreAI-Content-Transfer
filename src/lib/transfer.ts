@@ -3,7 +3,8 @@
 
 export type Env = { id: string; name: string; tenant?: string }
 /** `icons` lists the URLs to try for the item’s Sitecore icon, best first. */
-export type TreeNode = { id: string; name: string; path: string; template: string; hasChildren: boolean; icons?: string[] }
+export type TreeNode = { id: string; name: string; path: string; template: string; templateId?: string; hasChildren: boolean; icons?: string[] }
+export type ItemRef = { id: string; path: string; templateId?: string; templateName?: string }
 /** "SingleItem" copies just the item; "ItemAndDescendants" copies it with every item under it. */
 export type Scope = "SingleItem" | "ItemAndDescendants"
 /**
@@ -29,7 +30,9 @@ export type ChunkSet = { chunkSetId: string; chunkCount: number; totalItemCount:
 export interface Backend {
   pollMs: number
   children(env: string, path: string): Promise<TreeNode[]>
-  item(env: string, path: string): Promise<{ id: string; path: string } | null>
+  item(env: string, path: string): Promise<ItemRef | null>
+  /** Whether an item with this ID (here: a template) exists in the environment. */
+  templateExists(env: string, templateId: string): Promise<boolean>
   createTransfer(env: string, transferId: string, trees: DataTree[]): Promise<void>
   transferStatus(env: string, transferId: string): Promise<{ state: string; chunkSets: ChunkSet[] }>
   getChunk(env: string, transferId: string, chunkSetId: string, chunkId: number): Promise<Blob>
@@ -58,12 +61,22 @@ export function planProblem(plan: Plan): string {
 }
 
 export type ReviewOutcome = "create" | "update" | "replace" | "keep" | "conflict"
-export type ReviewRow = { path: string; scope: Scope; outcome: ReviewOutcome; parents: number; message?: string; removes?: string[]; removesTruncated?: boolean }
+/** For an item copied with sub-items: whether each sub-item is new in To, already there (same ID), or a different item at the same path. */
+export type SubItemState = "new" | "exists" | "differs"
+export type SubItem = { path: string; state: SubItemState }
+export type MissingTemplate = { id: string; name: string; usedBy: number }
+export type ReviewRow = {
+  path: string; scope: Scope; outcome: ReviewOutcome; parents: number; message?: string
+  missingTemplates?: MissingTemplate[]
+  removes?: string[]; removesTruncated?: boolean
+  subItems?: SubItem[]; subItemsTruncated?: boolean
+}
 
 const SUBTREE_LIMIT = 2000
-/** Every item under `path` (not the item itself), as id → path, up to a limit. */
-async function subtree(backend: Backend, env: string, path: string): Promise<{ items: Map<string, string>; truncated: boolean }> {
-  const items = new Map<string, string>()
+type Sub = { path: string; templateId?: string; template: string }
+/** Every item under `path` (not the item itself), by normalised ID, up to a limit. */
+async function subtree(backend: Backend, env: string, path: string): Promise<{ items: Map<string, Sub>; truncated: boolean }> {
+  const items = new Map<string, Sub>()
   const queue = [path]
   while (queue.length) {
     const next = queue.shift()!
@@ -71,7 +84,7 @@ async function subtree(backend: Backend, env: string, path: string): Promise<{ i
     try { children = await backend.children(env, next) } catch { if (next === path) return { items, truncated: false }; continue }
     for (const child of children) {
       if (items.size >= SUBTREE_LIMIT) return { items, truncated: true }
-      items.set(normalizeId(child.id), child.path)
+      items.set(normalizeId(child.id), { path: child.path, templateId: child.templateId, template: child.template })
       if (child.hasChildren) queue.push(child.path)
     }
   }
@@ -105,14 +118,39 @@ export async function reviewPlan(backend: Backend, source: string, destination: 
       if (normalizeId(a.id) !== normalizeId(b.id)) { missing = `Parent item has a different ID in each environment: ${parent}`; break }
     }
     if (missing) { rows.push({ path, scope, outcome: "conflict", parents: 0, message: missing }); continue }
-    if (tree.mergeStrategy === "OverrideExistingTree" && to) {
-      // Show exactly what replacing the tree would delete: items under it in To that From doesn't have.
-      const [fromTree, toTree] = await Promise.all([subtree(backend, source, path), subtree(backend, destination, path)])
-      const removes = [...toTree.items].filter(([id]) => !fromTree.items.has(id)).map(([, itemPath]) => itemPath).sort()
-      rows.push({ path, scope, parents: parents.length, outcome: "replace", removes, removesTruncated: fromTree.truncated || toTree.truncated })
+    const outcome: ReviewOutcome = tree.mergeStrategy === "OverrideExistingTree" && to ? "replace" : !to ? "create" : tree.mergeStrategy === "KeepExistingItem" ? "keep" : "update"
+    const empty = { items: new Map<string, Sub>(), truncated: false }
+    // With sub-items: compare both trees so the review can say what each sub-item will do.
+    const [fromTree, toTree] = scope === "ItemAndDescendants"
+      ? await Promise.all([subtree(backend, source, path), to ? subtree(backend, destination, path) : Promise.resolve(empty)])
+      : [empty, empty]
+    // Every template these items use must exist in To, or Sitecore can't import them.
+    const used = new Map<string, MissingTemplate>()
+    for (const ref of [{ templateId: from.templateId, template: from.templateName ?? "" }, ...fromTree.items.values()]) {
+      if (!ref.templateId) continue
+      const key = normalizeId(ref.templateId)
+      const entry = used.get(key) ?? { id: ref.templateId, name: ref.template || ref.templateId, usedBy: 0 }
+      entry.usedBy++
+      used.set(key, entry)
+    }
+    const missingTemplates: MissingTemplate[] = []
+    for (const template of used.values()) if (!(await backend.templateExists(destination, template.id))) missingTemplates.push(template)
+    if (missingTemplates.length) {
+      rows.push({ path, scope, parents: parents.length, outcome: "conflict", missingTemplates,
+        message: `Template${missingTemplates.length === 1 ? "" : "s"} missing in the destination: ${missingTemplates.map(t => t.name).join(", ")}` })
       continue
     }
-    rows.push({ path, scope, parents: parents.length, outcome: !to ? "create" : tree.mergeStrategy === "KeepExistingItem" ? "keep" : "update" })
+    if (scope !== "ItemAndDescendants") { rows.push({ path, scope, parents: parents.length, outcome }); continue }
+    const toByPath = new Set([...toTree.items.values()].map(sub => lower(sub.path)))
+    const subItems: SubItem[] = [...fromTree.items].map(([id, sub]) => ({ path: sub.path, state: toTree.items.has(id) ? "exists" as const : toByPath.has(lower(sub.path)) ? "differs" as const : "new" as const }))
+      .sort((a, b) => a.path.localeCompare(b.path))
+    const row: ReviewRow = { path, scope, parents: parents.length, outcome, subItems, subItemsTruncated: fromTree.truncated || toTree.truncated }
+    // Replacing a tree deletes items under it in To that From doesn't have.
+    if (outcome === "replace") {
+      row.removes = [...toTree.items].filter(([id]) => !fromTree.items.has(id)).map(([, sub]) => sub.path).sort()
+      row.removesTruncated = row.subItemsTruncated
+    }
+    rows.push(row)
   }
   return rows
 }
