@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { requireDemoMode } from "@/lib/security/demo-mode"
 
 import { getJob, hydrateJob, updateMapping } from "@/lib/store"
 import type { MappingDecision } from "@/lib/types"
@@ -11,6 +12,8 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const blocked = requireDemoMode()
+  if (blocked) return blocked
   const { id } = await params
   const job = getJob(id)
   if (!job) {
@@ -23,6 +26,8 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const blocked = requireDemoMode()
+  if (blocked) return blocked
   const { id } = await params
   try {
     const body = (await request.json()) as {
