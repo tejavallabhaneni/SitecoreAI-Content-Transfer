@@ -125,6 +125,27 @@ test("run: follows the Content Transfer call order and always cleans up the sour
   assert.ok(!calls.includes("consume@B"), "nothing is imported after a failed copy")
 })
 
+test("run: the source transfer is removed when packaging fails or its status can't be read", async () => {
+  for (const status of [async () => ({ state: "Failed", chunkSets: [] }), async () => { throw new Error("status unavailable") }]) {
+    const calls = []
+    const fake = {
+      pollMs: 0,
+      children: async () => [],
+      item: async (env, path) => ({ id: `id-${path}`, path }),
+      createTransfer: async () => { calls.push("create") },
+      transferStatus: status,
+      deleteTransfer: async () => { calls.push("delete") },
+    }
+    await assert.rejects(runTransfer(fake, "A", "B", plan(["/sitecore/content/S/P"]), approve, () => {}, () => "t3"))
+    assert.deepEqual(calls, ["create", "delete"])
+  }
+})
+
+test("run: overwrite of an all-new plan runs once overwrite is approved", async () => {
+  const result = await run(plan([DEMO_PATHS.newPage], "SingleItem", "OverrideExistingItem"))
+  assert.equal(result.items, 1)
+})
+
 test("import states", () => {
   assert.equal(importState({ state: "Processing" }), "running")
   assert.equal(importState({ state: "Transferred" }), "done")
