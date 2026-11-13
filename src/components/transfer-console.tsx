@@ -10,6 +10,11 @@ import { Label } from "@/components/ui/label"
 type Transfer = {
   id: string; item_path: string; source_host: string; destination_host: string
   status: string; created_at: string; scope: string; merge_strategy: string
+  preflight_verified_at?: string | null
+  progress: number
+  completed_chunks: number
+  total_chunks: number
+  last_error?: string | null
 }
 type Configuration = {
   source: { host: string }; destination: { host: string }; executionEnabled: boolean
@@ -24,6 +29,7 @@ export function TransferConsole({ login }: { login: string | null }) {
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
   const [pending, setPending] = useState(false)
+  const [verified, setVerified] = useState<Record<string, { sourceItemId: string; parents: number }>>({})
 
   const load = useCallback(async () => {
     if (!login) return
@@ -68,6 +74,60 @@ export function TransferConsole({ login }: { login: string | null }) {
     }
   }
 
+  async function preflight(job: Transfer) {
+    setPending(true)
+    setError("")
+    setNotice("")
+    try {
+      const response = await fetch(`/api/transfers/${job.id}/preflight`, { method: "POST" })
+      const body = (await response.json()) as {
+        error?: string; report?: { sourceItem: { itemId: string }; parentChecks: unknown[] }
+      }
+      if (!response.ok || !body.report) throw new Error(body.error ?? "Preflight failed")
+      setVerified(old => ({
+        ...old,
+        [job.id]: {
+          sourceItemId: body.report!.sourceItem.itemId,
+          parents: body.report!.parentChecks.length,
+        },
+      }))
+      setNotice(`Preflight passed for ${job.item_path}; destination parent IDs match.`)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Preflight failed")
+    } finally { setPending(false) }
+  }
+
+  async function approve(job: Transfer) {
+    if (!verified[job.id]) {
+      setError("Run a fresh preflight and review its result before approval.")
+      return
+    }
+    const warning = `Queue transfer of ${job.item_path} to ${job.destination_host}? This can modify destination master content; publishing remains separate.`
+    if (!window.confirm(warning)) return
+    if (job.merge_strategy === "OverrideExistingItem" &&
+        !window.confirm("Confirm overwriting matching destination items. This action may replace existing content.")) return
+    setPending(true)
+    setError("")
+    try {
+      const response = await fetch(`/api/transfers/${job.id}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          confirmItemPath: job.item_path,
+          confirmDestinationHost: job.destination_host,
+          confirmOverwrite: job.merge_strategy === "OverrideExistingItem",
+        }),
+      })
+      const data = (await response.json()) as { error?: string }
+      if (!response.ok) throw new Error(data.error ?? "Approval failed")
+      setNotice("Transfer queued. It will run only if the separately deployed worker is explicitly enabled.")
+      setVerified(old => { const next = { ...old }; delete next[job.id]; return next })
+      await load()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Approval failed")
+    } finally { setPending(false) }
+  }
+
   if (!login) {
     return (
       <div className="mx-auto max-w-2xl space-y-4">
@@ -93,7 +153,7 @@ export function TransferConsole({ login }: { login: string | null }) {
         }}>Sign out</Button>
       </div>
       <p className="rounded-md border border-amber-300 p-3 text-sm">
-        This release is in guarded setup mode. Creating a draft does not move any content.
+        Every transfer requires a real SitecoreAI preflight and explicit approval. Queued transfers are processed only by an independently deployed worker; do not enable it before staging validation.
       </p>
       {config && (
         <Card><CardHeader><CardTitle>Configured environments</CardTitle></CardHeader>
@@ -144,6 +204,23 @@ export function TransferConsole({ login }: { login: string | null }) {
               <div className="font-medium">{job.item_path}</div>
               <div className="text-muted-foreground">{job.source_host} → {job.destination_host}</div>
               <div>Status: {job.status} · {job.scope} · {job.merge_strategy}</div>
+              {job.status === "running" && (
+                <div>Progress: {job.progress}% · chunks {job.completed_chunks}/{job.total_chunks}</div>
+              )}
+              {job.last_error && <div className="text-red-600">{job.last_error}</div>}
+              {job.status === "pending_preflight" && (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" disabled={pending}
+                    onClick={() => void preflight(job)}>Verify source and destination</Button>
+                  {verified[job.id] && (
+                    <>
+                      <span>Verified {verified[job.id].parents} parent IDs</span>
+                      <Button type="button" size="sm" disabled={pending}
+                        onClick={() => void approve(job)}>Approve &amp; queue transfer</Button>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </CardContent>
