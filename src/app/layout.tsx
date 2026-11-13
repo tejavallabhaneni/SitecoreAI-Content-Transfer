@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "SitecoreAI Content Transfer",
   description:
-    "Transfer Sitecore content items between XM Cloud environments with AI-assisted field mapping.",
+    "Transfer content between authorized SitecoreAI environments using native Content Transfer and Item Transfer APIs.",
 }
 
 export default function RootLayout({
