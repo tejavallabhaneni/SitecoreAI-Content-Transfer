@@ -21,7 +21,8 @@ const outcomes: Record<ReviewOutcome, { label: string; icon: typeof Plus; badge:
 
 function fixFor(message = "") {
   if (/Template.*missing in the destination/i.test(message)) return "Sitecore can’t import an item whose template, or a template it inherits from, isn’t in To. Add the missing templates to this transfer (they’re copied first), or leave this item out."
-  if (/different Sitecore item ID|different ID/i.test(message)) return "This item was created separately in each environment, so the IDs don’t match. Rename or delete it in To, or sync it with serialization, then check again."
+  if (/Parent item has a different ID/i.test(message)) return "That folder exists in both environments but was created separately, so its ID differs. Items keep their parent’s ID, so they can’t be placed under To’s folder without becoming orphaned. See the summary above."
+  if (/different Sitecore item ID|different ID/i.test(message)) return "This item exists in both environments but was created separately, so the IDs don’t match. Sync it with serialization, or delete it in To if it’s unused, then check again."
   if (/Missing required parent in To/i.test(message)) return "Add the missing parent folders to this transfer (they’re copied before the item), or leave this item out."
   if (/Missing required parent/i.test(message)) return "A parent folder isn’t in From. Check the item’s location, or leave it out."
   if (/not found/i.test(message)) return "The item isn’t in From any more. Leave it out and pick again."
@@ -106,20 +107,24 @@ export function ReviewTransfer({ id }: { id: string }) {
     catch (reason) { toast.error(reason instanceof Error ? reason.message : "The check couldn’t run.") }
     finally { setBusy(false) }
   }
-  async function addParents(row: ReviewRow) {
-    const paths = row.missingParents ?? []
+  async function addParents(paths: string[]) {
     try { addToDraft(id, paths.map(path => ({ path, scope: "SingleItem" as const }))); toast.success(`Added ${paths.length} parent folder${paths.length === 1 ? "" : "s"}. They’ll be copied first.`); await check() }
     catch (reason) { toast.error(reason instanceof Error ? reason.message : "Couldn’t add the parent folders.") }
   }
-  async function addTemplates(row: ReviewRow) {
-    const paths = (row.missingTemplates ?? []).flatMap(template => template.path ? [template.path] : [])
+  async function addTemplates(paths: string[]) {
     try { addToDraft(id, paths.map(path => ({ path, scope: "SingleItem" as const }))); toast.success(`Added ${paths.length} template${paths.length === 1 ? "" : "s"}. They’ll be copied first.`); await check() }
     catch (reason) { toast.error(reason instanceof Error ? reason.message : "Couldn’t add the templates.") }
   }
-  function leaveOut() {
-    try { dropFromDraft(id, conflicts.map(row => row.path)); setReview(rows => rows?.filter(row => row.outcome !== "conflict") ?? null) }
+  function leaveOut(rows: ReviewRow[] = conflicts) {
+    const drop = new Set(rows.map(row => row.path))
+    try { dropFromDraft(id, [...drop]); setReview(current => current?.filter(row => !drop.has(row.path)) ?? null) }
     catch (reason) { toast.error(reason instanceof Error ? reason.message : "Couldn’t change the plan.") }
   }
+  // Conflicts grouped by what causes them, so each cause is shown and fixed once.
+  const idGroups = new Map<string, ReviewRow[]>()
+  for (const row of conflicts) if (row.idConflictAt) idGroups.set(row.idConflictAt, [...(idGroups.get(row.idConflictAt) ?? []), row])
+  const allParents = [...new Set(conflicts.flatMap(row => row.missingParents ?? []))].sort()
+  const allTemplates = [...new Map(conflicts.flatMap(row => row.missingTemplates ?? []).filter(template => template.path).map(template => [template.path!.toLowerCase(), template])).values()]
   async function run() {
     setBusy(true)
     try { await startDraft(id, { overwriteApproved: ackOverwrite, deleteApproved: ackDelete }); toast.success("Import finished. Publish in To when you’re ready.") }
@@ -138,6 +143,29 @@ export function ReviewTransfer({ id }: { id: string }) {
       <Button size="lg" className="gap-2" onClick={() => void check()} disabled={busy}>{busy ? <><LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />Checking…</> : <><ShieldCheck className="size-4" aria-hidden="true" />Check</>}</Button>
     </section>}
 
+    {draft.status === "draft" && review && conflicts.length > 0 && <section className="surface space-y-4 border-rose-300/40 p-5" aria-labelledby="fix-heading">
+      <div><h2 id="fix-heading" className="font-semibold">Fix these first</h2><p className="mt-1 text-sm text-muted-foreground">{conflicts.length} item{conflicts.length === 1 ? " is" : "s are"} blocked, by {idGroups.size + (allParents.length ? 1 : 0) + (allTemplates.length ? 1 : 0)} cause{idGroups.size + (allParents.length ? 1 : 0) + (allTemplates.length ? 1 : 0) === 1 ? "" : "s"}.</p></div>
+      {allParents.length > 0 && <div className="rounded-lg border bg-white/5 p-4 text-sm">
+        <p className="font-semibold">{allParents.length} parent folder{allParents.length === 1 ? " is" : "s are"} missing in {draft.destination.name}</p>
+        <ul className="mt-2 space-y-0.5">{allParents.map(path => <li key={path} className="break-all font-mono text-xs text-muted-foreground">{path}</li>)}</ul>
+        <Button size="sm" className="mt-3" disabled={busy} onClick={() => void addParents(allParents)}>Add all missing parent folders</Button>
+        <p className="mt-2 text-xs text-muted-foreground">They’re copied before the items inside them.</p>
+      </div>}
+      {allTemplates.length > 0 && <div className="rounded-lg border bg-white/5 p-4 text-sm">
+        <p className="font-semibold">{allTemplates.length} template{allTemplates.length === 1 ? " is" : "s are"} missing in {draft.destination.name}</p>
+        <ul className="mt-2 space-y-0.5">{allTemplates.map(template => <li key={template.path} className="text-xs text-muted-foreground"><span className="font-semibold text-white">{template.name}</span>{template.inheritedBy ? ` · inherited by ${template.inheritedBy}` : ""} · <span className="break-all font-mono">{template.path}</span></li>)}</ul>
+        <Button size="sm" className="mt-3" disabled={busy} onClick={() => void addTemplates(allTemplates.map(template => template.path!))}>Add all missing templates</Button>
+        <p className="mt-2 text-xs text-muted-foreground">Templates are copied first, in their own step.</p>
+      </div>}
+      {[...idGroups].map(([folder, rows]) => <div key={folder} className="rounded-lg border bg-white/5 p-4 text-sm">
+        <p className="font-semibold">“{folder.split("/").at(-1)}” exists in both environments with a different ID</p>
+        <p className="mt-1 break-all font-mono text-xs text-muted-foreground">{folder}</p>
+        <p className="mt-2 text-muted-foreground">It was created separately in each environment. Content Transfer keeps item IDs, so items from {draft.source.name} can’t be placed under {draft.destination.name}’s copy of this folder. Blocks {rows.length} selected item{rows.length === 1 ? "" : "s"}.</p>
+        <p className="mt-2 text-xs text-muted-foreground">To transfer them: sync this folder between the environments with serialization so the IDs match, or, if {draft.destination.name}’s folder is unused, delete it there and copy it from {draft.source.name} with its sub-items.</p>
+        <Button size="sm" variant="outline" className="mt-3" disabled={busy} onClick={() => leaveOut(rows)}>Leave out the {rows.length} blocked item{rows.length === 1 ? "" : "s"}</Button>
+      </div>)}
+    </section>}
+
     {draft.status === "draft" && review && <section className="surface p-5">
       <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-semibold">What will happen</h2>
         <div className="mt-2 flex flex-wrap gap-2" aria-label="Summary">{counts.map(({ outcome, n }) => <span key={outcome} className={cn("rounded-full px-2.5 py-0.5 text-xs font-semibold", outcomes[outcome].badge)}>{n} {outcomes[outcome].label.toLowerCase()}</span>)}
@@ -153,11 +181,9 @@ export function ReviewTransfer({ id }: { id: string }) {
                 <ul className="mt-2 space-y-1 text-xs text-muted-foreground">{row.missingTemplates.map(template => <li key={template.id}>
                   <span className="font-semibold text-white">{template.name}</span> · {template.inheritedBy ? <>inherited by <strong className="text-white">{template.inheritedBy}</strong></> : <>used by {template.usedBy} item{template.usedBy === 1 ? "" : "s"}</>}
                   {template.path && <span className="block break-all font-mono">{template.path}</span>}</li>)}</ul>
-                {row.missingTemplates.some(template => template.path) && <Button size="sm" className="mt-3" onClick={() => void addTemplates(row)} disabled={busy}>Add the missing template{row.missingTemplates.length === 1 ? "" : "s"} to this transfer</Button>}
               </> : null}
               {row.missingParents?.length ? <>
                 <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">{row.missingParents.map(parent => <li key={parent} className="break-all font-mono">{parent}</li>)}</ul>
-                <Button size="sm" className="mt-3" onClick={() => void addParents(row)} disabled={busy}>Add the missing parent folder{row.missingParents.length === 1 ? "" : "s"} to this transfer</Button>
               </> : null}
               <p className="mt-1 text-muted-foreground">{fixFor(row.message)}</p></div>
             : <p className="mt-1.5 text-sm text-muted-foreground">{tone.explain}</p>}
@@ -173,7 +199,7 @@ export function ReviewTransfer({ id }: { id: string }) {
       {conflicts.length > 0 && <div role="alert" className="mt-4 rounded-lg bg-rose-100 p-4 text-sm text-rose-800">
         <p className="font-semibold">Fix {conflicts.length === 1 ? "the conflict" : `${conflicts.length} conflicts`} to continue</p>
         <p className="mt-1">Fix it in SitecoreAI and check again, or leave it out.</p>
-        {conflicts.length < review.length && <Button variant="outline" size="sm" className="mt-3 border-rose-300 bg-transparent text-rose-800 hover:bg-rose-200" onClick={leaveOut}>Leave out blocked items</Button>}
+        {conflicts.length < review.length && <Button variant="outline" size="sm" className="mt-3 border-rose-300 bg-transparent text-rose-800 hover:bg-rose-200" onClick={() => leaveOut()}>Leave out blocked items</Button>}
       </div>}
     </section>}
 

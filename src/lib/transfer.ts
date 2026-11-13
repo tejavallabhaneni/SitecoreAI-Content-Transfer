@@ -77,6 +77,8 @@ export type ReviewRow = {
   templatesFirst?: string[]
   /** Parent folders To lacks; adding them to the transfer resolves the conflict. */
   missingParents?: string[]
+  /** The folder (this item or a parent) that exists in both environments with different IDs. */
+  idConflictAt?: string
   removes?: string[]; removesTruncated?: boolean
   subItems?: SubItem[]; subItemsTruncated?: boolean
 }
@@ -123,9 +125,10 @@ export async function reviewPlan(backend: Backend, source: string, destination: 
     const tree = treeFor(selection, plan.mergeStrategy)
     const [from, to] = await Promise.all([backend.item(source, path), backend.item(destination, path)])
     if (!from) { rows.push({ path, scope, outcome: "conflict", parents: 0, message: "Source item was not found" }); continue }
-    if (to && normalizeId(to.id) !== normalizeId(from.id)) { rows.push({ path, scope, outcome: "conflict", parents: 0, message: "Destination item at the same path has a different Sitecore item ID" }); continue }
+    if (to && normalizeId(to.id) !== normalizeId(from.id)) { rows.push({ path, scope, outcome: "conflict", parents: 0, idConflictAt: path, message: "Destination item at the same path has a different Sitecore item ID" }); continue }
     const included = (itemPath: string) => plan.items.some(selected => lower(itemPath) === lower(selected.path) || (selected.scope === "ItemAndDescendants" && lower(itemPath).startsWith(lower(selected.path) + "/")))
     let missing = ""
+    let idConflictAt = ""
     const missingParents: string[] = []
     const parents = ["/sitecore/" + path.split("/")[2], ...parentPaths(path)]
     for (const parent of parents) {
@@ -133,9 +136,9 @@ export async function reviewPlan(backend: Backend, source: string, destination: 
       if (!a) { missing = `Missing required parent in From: ${parent}`; break }
       // A parent To lacks is fine when this transfer includes it; otherwise it can be added.
       if (!b) { if (!included(parent)) missingParents.push(parent); continue }
-      if (normalizeId(a.id) !== normalizeId(b.id)) { missing = `Parent item has a different ID in each environment: ${parent}`; break }
+      if (normalizeId(a.id) !== normalizeId(b.id)) { missing = `Parent item has a different ID in each environment: ${parent}`; idConflictAt = parent; break }
     }
-    if (missing) { rows.push({ path, scope, outcome: "conflict", parents: 0, message: missing }); continue }
+    if (missing) { rows.push({ path, scope, outcome: "conflict", parents: 0, message: missing, ...(idConflictAt ? { idConflictAt } : {}) }); continue }
     if (missingParents.length) {
       rows.push({ path, scope, outcome: "conflict", parents: 0, missingParents,
         message: `Missing required parent${missingParents.length === 1 ? "" : "s"} in To: ${missingParents.join(", ")}` })

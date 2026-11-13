@@ -285,3 +285,14 @@ test("templates: a template the lookup can't find even in From is not reported m
   const [row] = await reviewPlan(fake, "A", "B", plan(["/sitecore/content/S/P"]))
   assert.notEqual(row.outcome, "conflict")
 })
+
+test("conflicts name the folder that causes them", async () => {
+  const [own] = await reviewPlan(demoBackend, DEV, STAGING, plan([DEMO_PATHS.conflictPage]))
+  assert.equal(own.idConflictAt, DEMO_PATHS.conflictPage)
+  const fake = {
+    pollMs: 0, templateInfo: async () => null, children: async () => [],
+    item: async (env, path) => ({ id: path.endsWith("/Allied") && env === "B" ? "other" : `id-${path}`, path }),
+  }
+  const [child] = await reviewPlan(fake, "A", "B", plan(["/sitecore/templates/Feature/Allied/List"]))
+  assert.equal(child.idConflictAt, "/sitecore/templates/Feature/Allied")
+})
