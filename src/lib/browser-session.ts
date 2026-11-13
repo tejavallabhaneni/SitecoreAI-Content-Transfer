@@ -2,10 +2,12 @@
 
 import type { Connections, HistoryRecord, NativeStatus, Plan } from "./sitecore/public-transfer"
 import type { ContentItem, Environment, HydratedJob, JobStatus } from "./types"
+import { DEMO_CONNECTIONS, demoAction, resetDemo } from "./demo-sitecore"
 
 // Tab memory only. No database, localStorage, sessionStorage, cookies, or files.
 let connection: Connections | null = null
 let refreshAccessToken: (() => Promise<string>) | null = null
+let demo = false
 let revision = 0
 const listeners = new Set<() => void>()
 const drafts = new Map<string, HydratedJob>()
@@ -13,8 +15,19 @@ export const subscribeConnection = (listener: () => void) => { listeners.add(lis
 export const connectionRevision = () => revision
 export const serverRevision = () => 0
 export const isConnected = () => connection !== null
+/** True while the tab is connected to the offline sample environments. */
+export const isDemo = () => demo && connection !== null
 export function setConnection(value: Connections | null, tokenProvider?: () => Promise<string>) {
+  applyConnection(value, tokenProvider, false)
+}
+/** Connects this tab to in-memory sample environments. Nothing leaves the browser. */
+export function startDemo() {
+  resetDemo()
+  applyConnection(DEMO_CONNECTIONS, undefined, true)
+}
+function applyConnection(value: Connections | null, tokenProvider: (() => Promise<string>) | undefined, isDemoConnection: boolean) {
   connection = value
+  demo = value !== null && isDemoConnection
   refreshAccessToken = value ? tokenProvider ?? null : null
   drafts.clear()
   revision++
@@ -23,8 +36,13 @@ export function setConnection(value: Connections | null, tokenProvider?: () => P
 
 export async function sitecoreAction<T>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
   const current = connection
-  const ownAuthentication = ["connect", "discover", "connectSignedIn"].includes(action)
+  const ownAuthentication = ["connect", "test", "discover", "connectSignedIn"].includes(action)
   if (!ownAuthentication && !current) throw new Error("Connect your SitecoreAI environments first.")
+  if (demo && !ownAuthentication) {
+    const result = await demoAction<T>(action, payload)
+    if (current !== connection) throw new Error("The environment connection changed.")
+    return result
+  }
   let requestConnections = current
   if (!ownAuthentication && current && refreshAccessToken) {
     const accessToken = await refreshAccessToken()
@@ -45,7 +63,7 @@ export async function sitecoreAction<T>(action: string, payload: Record<string, 
 export function environments(): Environment[] {
   if (!connection) return []
   return (["source", "destination"] as const).map(id => ({
-    id, name: id === "source" ? "Source authoring" : "Destination authoring",
+    id, name: (id === "source" ? "Source authoring" : "Destination authoring") + (demo ? " (demo)" : ""),
     kind: "authoring", region: "", host: new URL(connection![id].baseUrl).hostname, connected: true,
   }))
 }
@@ -132,6 +150,11 @@ export async function sessionRead<T>(input: string): Promise<T> {
 
 export function createDraft(input: { name: string; itemPaths: string[]; scope: Plan["scope"]; mergeStrategy: Plan["mergeStrategy"] }): HydratedJob {
   if (!connection) throw new Error("Connect your environments first.")
+  const lower = input.itemPaths.map(path => path.toLowerCase())
+  if (new Set(lower).size !== lower.length) throw new Error("The same item is selected twice.")
+  if (input.scope === "ItemAndDescendants" && lower.some(path => lower.some(parent => parent !== path && path.startsWith(parent + "/")))) {
+    throw new Error("One selected item is inside another. With children included, select only the higher item.")
+  }
   const id = "draft-" + crypto.randomUUID()
   const now = new Date().toISOString()
   const envs = environments()
@@ -144,10 +167,40 @@ export function createDraft(input: { name: string; itemPaths: string[]; scope: P
   return job
 }
 
-export async function reviewDraft(id: string) {
+/** Removes blocked roots from a draft that hasn't started. */
+export function removeFromDraft(id: string, paths: string[]) {
+  const draft = drafts.get(id)
+  if (!draft?.plan || draft.status !== "queued") throw new Error("Only a draft that hasn't started can be changed.")
+  const drop = new Set(paths.map(path => path.toLowerCase()))
+  const itemPaths = draft.plan.itemPaths.filter(path => !drop.has(path.toLowerCase()))
+  if (!itemPaths.length) throw new Error("Nothing would be left to transfer. Choose different content.")
+  draft.plan = { ...draft.plan, itemPaths }
+  draft.updatedAt = new Date().toISOString()
+  return { ...draft }
+}
+
+export type ReviewOutcome = "create" | "update" | "keep" | "conflict"
+export type ReviewRow = { path: string; outcome: ReviewOutcome; parents: number; message?: string }
+
+/**
+ * Checks each content root on its own so one conflict doesn't hide the rest.
+ * The server re-runs the full preflight when the transfer starts.
+ */
+export async function reviewDraft(id: string): Promise<ReviewRow[]> {
   const draft = drafts.get(id)
   if (!draft?.plan) throw new Error("This draft is no longer in this tab. Reconnect and prepare a new plan.")
-  return sitecoreAction<{ sourceItem: { itemId: string; path: string }; targetItem: unknown; parentChecks: unknown[] }[]>("preflight", { plan: draft.plan })
+  const plan = draft.plan
+  const rows: ReviewRow[] = []
+  for (const path of plan.itemPaths) {
+    try {
+      const [report] = await sitecoreAction<{ sourceItem: { itemId: string; path: string }; targetItem: unknown; parentChecks: unknown[] }[]>("preflight", { plan: { ...plan, itemPaths: [path] } })
+      rows.push({ path, parents: report.parentChecks.length, outcome: !report.targetItem ? "create" : plan.mergeStrategy === "OverrideExistingItem" ? "update" : "keep" })
+    } catch (error) {
+      if (error instanceof Error && error.message === "The environment connection changed.") throw error
+      rows.push({ path, parents: 0, outcome: "conflict", message: error instanceof Error ? error.message : "This item could not be checked." })
+    }
+  }
+  return rows
 }
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
@@ -156,7 +209,7 @@ async function poll<T>(read: () => Promise<T>, done: (value: T) => boolean): Pro
   while (Date.now() < deadline) {
     const value = await read()
     if (done(value)) return value
-    await sleep(2000)
+    await sleep(demo ? 450 : 2000)
   }
   throw new Error("The wait timed out. Check the native transfer status before starting another operation.")
 }
@@ -165,13 +218,16 @@ export async function runDraft(id: string, approved: boolean, overwriteApproved:
   const draft = drafts.get(id)
   const session = connection
   if (!draft?.plan || draft.status !== "queued") throw new Error("Prepare a new reviewed transfer plan.")
-  const show = (stage: string) => {
+  // Phases drive the progress timeline: 1 export, 2 forward, 3 destination file, 4 import, 5 done.
+  const show = (stage: string, phase?: number) => {
     if (session !== connection) throw new Error("Connection changed; inspect native status before continuing.")
-    draft.stage = stage; draft.updatedAt = new Date().toISOString(); update({ ...draft })
+    draft.stage = stage; if (phase) draft.phase = phase
+    draft.updatedAt = new Date().toISOString(); update({ ...draft })
   }
   try {
     draft.status = "running"
-    show("Verifying parents and starting export")
+    draft.startedAt = new Date().toISOString()
+    show("Verifying parents and starting export", 1)
     const start = await sitecoreAction<{ operationId: string }>("start", { plan: draft.plan, approved, overwriteApproved })
     draft.exportOperationId = start.operationId
     show("Waiting for Sitecore export")
@@ -188,11 +244,11 @@ export async function runDraft(id: string, approved: boolean, overwriteApproved:
     const total = sets.reduce((sum, set) => sum + set.ChunkCount, 0)
     for (const set of sets) {
       for (let chunk = 0; chunk < set.ChunkCount; chunk++) {
-        show(`Forwarding chunk ${count + 1} of ${total}`)
+        show(`Forwarding chunk ${count + 1} of ${total}`, 2)
         await sitecoreAction("copyChunk", { ...start, chunkSetId: set.ChunkSetId, chunk })
         count++
       }
-      show("Completing destination file")
+      show("Completing destination file", 3)
       const file = await sitecoreAction<{ ContentTransferFileName: string }>("completeChunkSet", { ...start, chunkSetId: set.ChunkSetId })
       if (typeof file.ContentTransferFileName !== "string" || !file.ContentTransferFileName.endsWith(".raif")) throw new Error("Destination returned no transfer file.")
       files.push(file.ContentTransferFileName)
@@ -203,7 +259,7 @@ export async function runDraft(id: string, approved: boolean, overwriteApproved:
         if (["Error", "TransferredWithErrors", "Discarded"].includes(value.BlobState)) throw new Error("Destination file: " + value.BlobState)
         return value.BlobState === "Uploaded"
       })
-      show("Starting destination master import")
+      show("Starting destination master import", 4)
       await sitecoreAction("import", { file })
       let importId: string | undefined
       await poll(() => sitecoreAction<NativeStatus>("importStatus", { file, importId }), value => {
@@ -214,7 +270,7 @@ export async function runDraft(id: string, approved: boolean, overwriteApproved:
       })
     }
     draft.status = "success"; draft.completedAt = new Date().toISOString()
-    show("Imported to master — publishing is separate")
+    show("Imported to master — publishing is separate", 5)
   } catch (error) {
     draft.status = "error"
     draft.error = error instanceof Error ? error.message : "Transfer stopped."

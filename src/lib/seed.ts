@@ -60,7 +60,7 @@ export const environments: Environment[] = [
 export const items: ContentItem[] = [
   {
     id: "item-home",
-    path: "/sitecore/content/Americaneagle/Home",
+    path: "/sitecore/content/Harbor-and-Pine/Home",
     name: "Home",
     template: "Page",
     language: "en",
@@ -70,7 +70,7 @@ export const items: ContentItem[] = [
   },
   {
     id: "item-products",
-    path: "/sitecore/content/Americaneagle/Home/Products",
+    path: "/sitecore/content/Harbor-and-Pine/Home/Products",
     name: "Products",
     template: "Page",
     language: "en",
@@ -80,7 +80,7 @@ export const items: ContentItem[] = [
   },
   {
     id: "item-headphones",
-    path: "/sitecore/content/Americaneagle/Home/Products/Aero-Headphones",
+    path: "/sitecore/content/Harbor-and-Pine/Home/Products/Aero-Headphones",
     name: "Aero Headphones",
     template: "Product",
     language: "en",
@@ -90,7 +90,7 @@ export const items: ContentItem[] = [
   },
   {
     id: "item-watch",
-    path: "/sitecore/content/Americaneagle/Home/Products/Pulse-Watch",
+    path: "/sitecore/content/Harbor-and-Pine/Home/Products/Pulse-Watch",
     name: "Pulse Watch",
     template: "Product",
     language: "en",
@@ -100,7 +100,7 @@ export const items: ContentItem[] = [
   },
   {
     id: "item-about",
-    path: "/sitecore/content/Americaneagle/Home/About",
+    path: "/sitecore/content/Harbor-and-Pine/Home/About",
     name: "About",
     template: "Page",
     language: "en",
@@ -110,7 +110,7 @@ export const items: ContentItem[] = [
   },
   {
     id: "item-blog",
-    path: "/sitecore/content/Americaneagle/Home/Blog",
+    path: "/sitecore/content/Harbor-and-Pine/Home/Blog",
     name: "Blog",
     template: "Page",
     language: "en",
@@ -120,7 +120,7 @@ export const items: ContentItem[] = [
   },
   {
     id: "item-spring",
-    path: "/sitecore/content/Americaneagle/Home/Blog/Spring-Catalog-Launch",
+    path: "/sitecore/content/Harbor-and-Pine/Home/Blog/Spring-Catalog-Launch",
     name: "Spring Catalog Launch",
     template: "Blog Post",
     language: "en",
@@ -130,7 +130,7 @@ export const items: ContentItem[] = [
   },
   {
     id: "item-hero",
-    path: "/sitecore/content/Americaneagle/Data/Hero-Banners/Homepage-Hero",
+    path: "/sitecore/content/Harbor-and-Pine/Data/Hero-Banners/Homepage-Hero",
     name: "Homepage Hero",
     template: "Promo Banner",
     language: "en",
@@ -140,7 +140,7 @@ export const items: ContentItem[] = [
   },
   {
     id: "item-nav",
-    path: "/sitecore/content/Americaneagle/Data/Navigation/Main-Menu",
+    path: "/sitecore/content/Harbor-and-Pine/Data/Navigation/Main-Menu",
     name: "Main Menu",
     template: "Navigation Folder",
     language: "en",
@@ -150,7 +150,7 @@ export const items: ContentItem[] = [
   },
   {
     id: "item-footer",
-    path: "/sitecore/content/Americaneagle/Data/Navigation/Footer",
+    path: "/sitecore/content/Harbor-and-Pine/Data/Navigation/Footer",
     name: "Footer",
     template: "Navigation Folder",
     language: "en",
@@ -160,7 +160,7 @@ export const items: ContentItem[] = [
   },
   {
     id: "item-faq",
-    path: "/sitecore/content/Americaneagle/Home/Support/FAQ",
+    path: "/sitecore/content/Harbor-and-Pine/Home/Support/FAQ",
     name: "FAQ",
     template: "Page",
     language: "en",
@@ -170,7 +170,7 @@ export const items: ContentItem[] = [
   },
   {
     id: "item-media",
-    path: "/sitecore/media library/Americaneagle/Campaigns/Fall-Lookbook",
+    path: "/sitecore/media library/Harbor-and-Pine/Campaigns/Fall-Lookbook",
     name: "Fall Lookbook",
     template: "Media Folder",
     language: "en",

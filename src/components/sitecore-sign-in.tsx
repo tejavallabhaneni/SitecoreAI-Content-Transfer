@@ -41,7 +41,7 @@ function SignInSetup() {
     </div>
     {showSetup && <div id="sitecore-setup-steps" className="border-t bg-muted/40 p-5 sm:p-7"><h3 className="font-semibold">One-time setup for the app owner</h3>
       <ol className="mt-4 space-y-4 text-sm leading-6"><li><strong>1. Register a Sitecore SPA client.</strong><p className="text-muted-foreground">In Cloud Portal, open App studio → Studio → your app → Client credentials. Create a Single-page app client.</p></li>
-        <li><strong>2. Allow this app’s callback.</strong><p className="mt-1 break-all rounded-md border bg-white px-3 py-2 font-mono text-xs">{typeof window === "undefined" ? "/auth/callback" : `${window.location.origin}/auth/callback`}</p></li>
+        <li><strong>2. Allow this app’s callback.</strong><p className="mt-1 break-all rounded-md border bg-card px-3 py-2 font-mono text-xs">{typeof window === "undefined" ? "/auth/callback" : `${window.location.origin}/auth/callback`}</p></li>
         <li><strong>3. Configure and verify API access.</strong><p className="text-muted-foreground">Add the registered public client ID and approved API audience to this deployment, rebuild, then verify environment and transfer permissions. A client secret is not required for SPA sign-in.</p></li></ol>
       <a href="https://doc.sitecore.com/mp/en/developers/marketplace/create-client-credentials.html" target="_blank" rel="noreferrer" className="mt-5 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">Open Sitecore setup guide<ArrowUpRight className="size-3.5" /></a>
     </div>}
@@ -112,7 +112,7 @@ function EnvironmentPicker() {
     {busy && <p role="status" className="mt-5 flex items-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" />Checking Sitecore access…</p>}
     <div className="mt-6 grid gap-4 sm:grid-cols-2">{(["source", "destination"] as const).map(side => <div className="space-y-3 rounded-lg border p-4" key={side}><span className="flex items-center gap-2 text-xs text-muted-foreground"><Server className="size-4" />{side === "source" ? "Copy from" : "Copy to"}</span>
       <Label htmlFor={`signed-in-${side}`}>{side === "source" ? "Source environment" : "Destination environment"}</Label>
-      <select id={`signed-in-${side}`} disabled={busy || result.environments.length === 0} value={side === "source" ? sourceId : destinationId} onChange={event => (side === "source" ? setSourceId : setDestinationId)(event.target.value)} className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm disabled:bg-muted">
+      <select id={`signed-in-${side}`} disabled={busy || result.environments.length === 0} value={side === "source" ? sourceId : destinationId} onChange={event => (side === "source" ? setSourceId : setDestinationId)(event.target.value)} className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm disabled:bg-muted">
         <option value="">Choose an environment</option>{result.environments.map(item => <option value={item.id} key={item.id} disabled={item.id === (side === "source" ? destinationId : sourceId)}>{item.projectName} / {item.name}</option>)}
       </select></div>)}</div>
     {error && <div role="alert" className="mt-4 rounded-lg border border-destructive/20 bg-red-50 p-4 text-sm text-destructive">{error}<p className="mt-2 text-xs">Check your Sitecore permissions or contact the app owner.</p></div>}
