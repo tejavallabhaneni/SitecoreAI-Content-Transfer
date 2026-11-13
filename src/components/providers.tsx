@@ -9,7 +9,7 @@ import { SitecoreSignInProvider } from "@/components/sitecore-sign-in"
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+    <ThemeProvider attribute="class" forcedTheme="light" defaultTheme="light" enableSystem={false}>
       <SitecoreSignInProvider><TooltipProvider>
         <AppShell>{children}</AppShell>
         <Toaster />

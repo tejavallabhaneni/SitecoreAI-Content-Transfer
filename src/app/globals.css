@@ -208,17 +208,17 @@
   --color-fuchsia-800: #640664;
   --color-fuchsia-900: #470e46;
   --color-fuchsia-950: #470e46;
-  --color-indigo-50: #f7f6ff;
-  --color-indigo-100: #eae7ff;
-  --color-indigo-200: #d9d4ff;
-  --color-indigo-300: #b8a9ff;
-  --color-indigo-400: #9373ff;
-  --color-indigo-500: #6e3fff;
-  --color-indigo-600: #5319e0;
-  --color-indigo-700: #4715af;
-  --color-indigo-800: #401791;
-  --color-indigo-900: #2f1469;
-  --color-indigo-950: #2f1469;
+  --color-indigo-50: #f4f7ff;
+  --color-indigo-100: #e1eaff;
+  --color-indigo-200: #c9d8ff;
+  --color-indigo-300: #9cb3fd;
+  --color-indigo-400: #6987f9;
+  --color-indigo-500: #4a65e8;
+  --color-indigo-600: #344bc3;
+  --color-indigo-700: #293ba1;
+  --color-indigo-800: #1f2d7f;
+  --color-indigo-900: #16215f;
+  --color-indigo-950: #16215f;
   --color-violet-50: #f7f6ff;
   --color-violet-100: #eae7ff;
   --color-violet-200: #d9d4ff;
@@ -257,27 +257,27 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-sans: var(--font-dm-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
-  --text-sm: 0.8125rem;
-  --text-base: 0.875rem;
+  --text-sm: 0.875rem;
+  --text-base: 0.9375rem;
   --color-brand-soft: var(--brand-soft);
   --color-brand-tint: var(--brand-tint);
   --color-brand-ink: var(--brand-ink);
   --color-brand-red: var(--brand-red);
   --color-brand-red-soft: var(--brand-red-soft);
   --color-brand-red-ink: var(--brand-red-ink);
-  /* Workflow-step tokens. All three use the SitecoreAI violet, as Blok does. */
+  /* Workflow-step tokens: blue for Connect and Choose, red for Review & transfer. */
   --color-connect: var(--accent-solid);
   --color-connect-tint: var(--brand-tint);
   --color-connect-ink: var(--brand-ink);
   --color-choose: var(--accent-solid);
   --color-choose-tint: var(--brand-tint);
   --color-choose-ink: var(--brand-ink);
-  --color-review: var(--accent-solid);
-  --color-review-tint: var(--brand-tint);
-  --color-review-ink: var(--brand-ink);
+  --color-review: var(--brand-red);
+  --color-review-tint: var(--brand-red-soft);
+  --color-review-ink: var(--brand-red-ink);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -316,33 +316,37 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* Blok light theme. */
+/*
+  Light theme in the Sitecore MVP colours: deep indigo primary, Sitecore red
+  accent, and the lavender → indigo → magenta → red brand gradient.
+*/
 :root {
-  --brand-soft: #f7f6ff;
-  --brand-tint: #eae7ff;
-  --brand-ink: #5319e0;
-  --brand-red: #d92739;
-  --brand-red-soft: #fff5f4;
-  --brand-red-ink: #b30426;
-  --accent-solid: #6e3fff;
+  --brand-gradient: linear-gradient(100deg, #6f60d2 0%, #5233c2 16%, #3c12a8 38%, #8e1878 50%, #d61b3e 60%, #f01b28 76%, #f5403f 100%);
+  --brand-soft: #f6f4fe;
+  --brand-tint: #ebe6fb;
+  --brand-ink: #3c12a8;
+  --brand-red: #eb1f2c;
+  --brand-red-soft: #fff1f1;
+  --brand-red-ink: #c0101d;
+  --accent-solid: #3c12a8;
   --background: #f7f7f7;
   --foreground: #212121;
   --card: #ffffff;
   --card-foreground: #212121;
   --popover: #ffffff;
   --popover-foreground: #212121;
-  --primary: #6e3fff;
+  --primary: #3c12a8;
   --primary-foreground: #ffffff;
   --secondary: #f7f7f7;
   --secondary-foreground: #212121;
   --muted: #f7f7f7;
   --muted-foreground: #717171;
-  --accent: #f7f6ff;
-  --accent-foreground: #5319e0;
+  --accent: #f6f4fe;
+  --accent-foreground: #3c12a8;
   --destructive: #d92739;
   --border: rgba(0, 0, 0, 0.11);
   --input: rgba(0, 0, 0, 0.29);
-  --ring: #6987f9;
+  --ring: #7a66e0;
   --chart-1: #4e41cc;
   --chart-2: #0fb5ae;
   --chart-3: #f08910;
@@ -351,10 +355,10 @@
   --radius: 0.625rem;
   --sidebar: #ffffff;
   --sidebar-foreground: #3b3b3b;
-  --sidebar-primary: #6e3fff;
+  --sidebar-primary: #3c12a8;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #eae7ff;
-  --sidebar-accent-foreground: #5319e0;
+  --sidebar-accent: #ebe6fb;
+  --sidebar-accent-foreground: #3c12a8;
   --sidebar-border: rgba(0, 0, 0, 0.11);
   --sidebar-ring: #6987f9;
 }
@@ -571,10 +575,12 @@
   }
 }
 
-/* Independent community app styled with Sitecore's Blok tokens and a compact Inter scale. */
+/* Independent community app: Sitecore MVP gradient, indigo and red, light theme only, DM Sans. */
 @layer components {
   .page-title { @apply text-2xl font-semibold tracking-tight sm:text-3xl; }
   .page-description { @apply mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground; }
   .surface { @apply rounded-xl border bg-card; }
-  .eyebrow { @apply text-xs font-semibold uppercase tracking-widest text-brand-ink; }
+  .brand-gradient { background-image: var(--brand-gradient); }
+  .brand-gradient-text { @apply bg-clip-text text-transparent; background-image: var(--brand-gradient); }
+  .eyebrow { @apply text-xs font-semibold uppercase tracking-widest text-brand-red-ink; }
 }
