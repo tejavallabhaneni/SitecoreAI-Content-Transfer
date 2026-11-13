@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
+import { toast } from "sonner"
 import { ArrowLeft, ArrowLeftRight, ArrowRight, Check, LoaderCircle, Sparkles, X } from "lucide-react"
 import { ContentTree, ScopeToggle, type TreeController } from "@/components/content-tree"
 import { Button } from "@/components/ui/button"
@@ -55,6 +56,14 @@ const fresh = (): Wizard => ({ step: 1, selected: new Map(), merge: "KeepExistin
 let saved: Wizard = fresh()
 /** Starts the next transfer from step 1 with nothing selected. */
 export function resetWizard() { saved = fresh() }
+/** Back from the review: Settings shows the transfer as it is now, including items added there. */
+export function restoreWizard(draft: { name: string; plan: { items: { path: string; scope: Scope }[]; mergeStrategy: Merge } }) {
+  const selected = new Map<string, Picked>(draft.plan.items.map(item => [item.path.toLowerCase(), {
+    node: saved.selected.get(item.path.toLowerCase())?.node ?? { id: item.path, name: item.path.split("/").at(-1) ?? item.path, path: item.path, template: "", hasChildren: true },
+    scope: item.scope,
+  }]))
+  saved = { step: 3, selected, merge: draft.plan.mergeStrategy, name: draft.name }
+}
 
 const selectClass = "h-11 w-full rounded-md border border-input bg-card px-3 text-[15px]"
 
@@ -93,7 +102,15 @@ export function TransferHome() {
   function review() {
     setError("")
     try {
-      const draft = createDraft(name, { items: [...selected.values()].map(picked => ({ path: picked.node.path, scope: picked.scope })), mergeStrategy: merge })
+      // An item inside a folder copied with sub-items is already included: leave it out instead of failing.
+      const picks = [...selected.values()]
+      const covered = picks.filter(pick => picks.some(parent => parent !== pick && parent.scope === "ItemAndDescendants" && pick.node.path.toLowerCase().startsWith(parent.node.path.toLowerCase() + "/")))
+      if (covered.length) {
+        setSelected(old => { const next = new Map(old); covered.forEach(pick => next.delete(pick.node.path.toLowerCase())); return next })
+        toast.info(`${covered.map(pick => pick.node.name).join(", ")} ${covered.length === 1 ? "is" : "are"} already included by a folder copied with sub-items.`)
+      }
+      const items = picks.filter(pick => !covered.includes(pick)).map(pick => ({ path: pick.node.path, scope: pick.scope }))
+      const draft = createDraft(name, { items, mergeStrategy: merge })
       router.push(`/review/${draft.id}`)
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Couldn’t prepare the transfer.") }
   }

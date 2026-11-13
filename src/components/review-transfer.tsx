@@ -6,7 +6,7 @@ import { AlertTriangle, ArrowLeft, ArrowRight, Check, CircleSlash, LoaderCircle,
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { MERGE_OPTIONS, Stepper, resetWizard } from "@/components/transfer-home"
+import { MERGE_OPTIONS, Stepper, resetWizard, restoreWizard } from "@/components/transfer-home"
 import { addToDraft, checkDraft, dropFromDraft, startDraft, useSession, type Draft } from "@/lib/session"
 import { approvalsFor, type ReviewOutcome, type ReviewRow, type SubItem, type SubItemState } from "@/lib/transfer"
 import { cn } from "@/lib/utils"
@@ -129,7 +129,7 @@ export function ReviewTransfer({ id }: { id: string }) {
 
   return <div className="mx-auto flex max-w-6xl flex-col gap-6">
     <Stepper current={4} />
-    <div>{draft.status === "draft" && <Link href="/" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-white"><ArrowLeft className="size-4" aria-hidden="true" />Back to settings</Link>}
+    <div>{draft.status === "draft" && <Link href="/" onClick={() => restoreWizard(draft)} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-white"><ArrowLeft className="size-4" aria-hidden="true" />Back to settings</Link>}
       <h1 className="page-title mt-2 break-words">{draft.name}</h1>
       <p className="mt-2 flex flex-wrap items-center gap-2 text-sm"><span className="rounded-full bg-white/15 px-3 py-1">{draft.source.name}</span><ArrowRight className="size-4" aria-hidden="true" /><span className="rounded-full bg-white/15 px-3 py-1">{draft.destination.name}</span><span className="text-muted-foreground">· {mergeLabel}</span></p></div>
 
