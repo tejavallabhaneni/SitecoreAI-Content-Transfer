@@ -50,4 +50,8 @@ Keep the tab open while chunks are copied; an import already accepted by Sitecor
 
 ## Contributions
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md). No open-source license has been selected; public repository visibility alone does not grant additional reuse rights.
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
+
+## License
+
+[MIT](LICENSE). SitecoreAI and Sitecore are trademarks of Sitecore; this is an independent community app.
