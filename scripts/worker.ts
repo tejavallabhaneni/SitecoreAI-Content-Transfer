@@ -5,7 +5,7 @@
  * reconciled manually before attempting a retry.
  */
 import os from "node:os"
-import { claimTransfer, workerUpdate, db, type TransferRow } from "../src/lib/db/postgrest"
+import { claimTransfer, workerUpdate, type TransferRow } from "../src/lib/db/postgrest"
 import { readSitecoreConfig } from "../src/lib/sitecore/client"
 import { verifyPreflight } from "../src/lib/sitecore/preflight"
 import { executeNativeTransfer } from "../src/lib/sitecore/native-transfer"
