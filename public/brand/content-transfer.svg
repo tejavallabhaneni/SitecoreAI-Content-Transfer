@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 64 64">
+  <title>Content Transfer</title>
+  <defs>
+    <linearGradient id="transfer-purple" x1="4" y1="2" x2="60" y2="64" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6e3fff"/>
+      <stop offset="1" stop-color="#5319e0"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="17" fill="url(#transfer-purple)"/>
+  <path d="M28 15H18a4 4 0 0 0-4 4v20a4 4 0 0 0 4 4h5" fill="none" stroke="#fff" stroke-opacity=".75" stroke-width="2.8" stroke-linecap="round"/>
+  <path d="M36 49h10a4 4 0 0 0 4-4V25a4 4 0 0 0-4-4h-5" fill="none" stroke="#fff" stroke-opacity=".75" stroke-width="2.8" stroke-linecap="round"/>
+  <path d="M22 32h20m-7-7 7 7-7 7" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M20 23h6m12 18h6" fill="none" stroke="#fff" stroke-opacity=".6" stroke-width="2.2" stroke-linecap="round"/>
+</svg>

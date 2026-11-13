@@ -3,7 +3,8 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useState, useSyncExternalStore } from "react"
-import { ArrowLeftRight, ArrowUpRight, ChevronRight, CircleHelp, FolderTree, LayoutDashboard, Menu, Plus, Server, ShieldCheck } from "lucide-react"
+import { ArrowUpRight, ChevronRight, CircleHelp, FolderTree, LayoutDashboard, Menu, Plus, Server, ShieldCheck } from "lucide-react"
+import { AppLogo } from "@/components/app-logo"
 import { connectionRevision, isConnected, serverRevision, subscribeConnection } from "@/lib/browser-session"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
@@ -30,8 +31,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 
 function Brand() {
   return <Link href="/" className="flex items-center gap-3" aria-label="SitecoreAI Content Transfer home">
-    <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary text-white"><ArrowLeftRight className="size-5" aria-hidden="true" /></span>
-    <span><span className="block text-sm font-semibold tracking-tight text-foreground">Content Transfer</span><span className="block text-xs text-muted-foreground">for SitecoreAI</span></span>
+    <AppLogo />
   </Link>
 }
 
@@ -64,7 +64,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </Link>
       </header>
       <Sheet open={open} onOpenChange={setOpen}><SheetContent side="left" className="bg-white">
-        <SheetHeader><SheetTitle>Content Transfer</SheetTitle></SheetHeader><div className="px-3"><NavLinks onNavigate={() => setOpen(false)} /></div>
+        <SheetHeader><SheetTitle><AppLogo /></SheetTitle></SheetHeader><div className="px-3"><NavLinks onNavigate={() => setOpen(false)} /></div>
       </SheetContent></Sheet>
       <main id="main-content" className="flex-1 px-4 py-7 sm:px-7 sm:py-9 lg:px-10">{children}</main>
       <footer className="mx-4 flex items-center gap-2 border-t py-4 text-xs text-muted-foreground sm:mx-7 lg:mx-10"><ShieldCheck className="size-3.5" aria-hidden="true" />You review and approve every transfer.</footer>

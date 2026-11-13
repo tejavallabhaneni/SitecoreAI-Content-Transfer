@@ -16,6 +16,12 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "SitecoreAI Content Transfer",
+  applicationName: "Content Transfer for SitecoreAI",
+  icons: {
+    icon: [{ url: "/brand/content-transfer.svg", type: "image/svg+xml", sizes: "any" }],
+    shortcut: "/brand/content-transfer.svg",
+    apple: [{ url: "/brand/content-transfer-512.png", sizes: "512x512", type: "image/png" }],
+  },
   description:
     "Connect your own SitecoreAI environments, review native transfer history, and transfer content without an application database.",
 }
