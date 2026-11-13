@@ -22,7 +22,8 @@ const outcomes: Record<ReviewOutcome, { label: string; icon: typeof Plus; badge:
 function fixFor(message = "") {
   if (/Template.*missing in the destination/i.test(message)) return "Sitecore can’t import an item whose template, or a template it inherits from, isn’t in To. Add the missing templates to this transfer (they’re copied first), or leave this item out."
   if (/different Sitecore item ID|different ID/i.test(message)) return "This item was created separately in each environment, so the IDs don’t match. Rename or delete it in To, or sync it with serialization, then check again."
-  if (/Missing required parent/i.test(message)) return "A parent folder isn’t in To yet. Select the parent “with sub-items” too, or copy it first."
+  if (/Missing required parent in To/i.test(message)) return "Add the missing parent folders to this transfer (they’re copied before the item), or leave this item out."
+  if (/Missing required parent/i.test(message)) return "A parent folder isn’t in From. Check the item’s location, or leave it out."
   if (/not found/i.test(message)) return "The item isn’t in From any more. Leave it out and pick again."
   return "Check the item in both environments, then check again."
 }
@@ -105,6 +106,11 @@ export function ReviewTransfer({ id }: { id: string }) {
     catch (reason) { toast.error(reason instanceof Error ? reason.message : "The check couldn’t run.") }
     finally { setBusy(false) }
   }
+  async function addParents(row: ReviewRow) {
+    const paths = row.missingParents ?? []
+    try { addToDraft(id, paths.map(path => ({ path, scope: "SingleItem" as const }))); toast.success(`Added ${paths.length} parent folder${paths.length === 1 ? "" : "s"}. They’ll be copied first.`); await check() }
+    catch (reason) { toast.error(reason instanceof Error ? reason.message : "Couldn’t add the parent folders.") }
+  }
   async function addTemplates(row: ReviewRow) {
     const paths = (row.missingTemplates ?? []).flatMap(template => template.path ? [template.path] : [])
     try { addToDraft(id, paths.map(path => ({ path, scope: "SingleItem" as const }))); toast.success(`Added ${paths.length} template${paths.length === 1 ? "" : "s"}. They’ll be copied first.`); await check() }
@@ -148,6 +154,10 @@ export function ReviewTransfer({ id }: { id: string }) {
                   <span className="font-semibold text-white">{template.name}</span> · {template.inheritedBy ? <>inherited by <strong className="text-white">{template.inheritedBy}</strong></> : <>used by {template.usedBy} item{template.usedBy === 1 ? "" : "s"}</>}
                   {template.path && <span className="block break-all font-mono">{template.path}</span>}</li>)}</ul>
                 {row.missingTemplates.some(template => template.path) && <Button size="sm" className="mt-3" onClick={() => void addTemplates(row)} disabled={busy}>Add the missing template{row.missingTemplates.length === 1 ? "" : "s"} to this transfer</Button>}
+              </> : null}
+              {row.missingParents?.length ? <>
+                <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">{row.missingParents.map(parent => <li key={parent} className="break-all font-mono">{parent}</li>)}</ul>
+                <Button size="sm" className="mt-3" onClick={() => void addParents(row)} disabled={busy}>Add the missing parent folder{row.missingParents.length === 1 ? "" : "s"} to this transfer</Button>
               </> : null}
               <p className="mt-1 text-muted-foreground">{fixFor(row.message)}</p></div>
             : <p className="mt-1.5 text-sm text-muted-foreground">{tone.explain}</p>}

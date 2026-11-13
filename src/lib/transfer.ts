@@ -75,6 +75,8 @@ export type ReviewRow = {
   missingTemplates?: MissingTemplate[]
   /** Templates To lacks that this transfer already includes; they are copied first. */
   templatesFirst?: string[]
+  /** Parent folders To lacks; adding them to the transfer resolves the conflict. */
+  missingParents?: string[]
   removes?: string[]; removesTruncated?: boolean
   subItems?: SubItem[]; subItemsTruncated?: boolean
 }
@@ -122,14 +124,23 @@ export async function reviewPlan(backend: Backend, source: string, destination: 
     const [from, to] = await Promise.all([backend.item(source, path), backend.item(destination, path)])
     if (!from) { rows.push({ path, scope, outcome: "conflict", parents: 0, message: "Source item was not found" }); continue }
     if (to && normalizeId(to.id) !== normalizeId(from.id)) { rows.push({ path, scope, outcome: "conflict", parents: 0, message: "Destination item at the same path has a different Sitecore item ID" }); continue }
+    const included = (itemPath: string) => plan.items.some(selected => lower(itemPath) === lower(selected.path) || (selected.scope === "ItemAndDescendants" && lower(itemPath).startsWith(lower(selected.path) + "/")))
     let missing = ""
+    const missingParents: string[] = []
     const parents = ["/sitecore/" + path.split("/")[2], ...parentPaths(path)]
     for (const parent of parents) {
       const [a, b] = await Promise.all([backend.item(source, parent), backend.item(destination, parent)])
-      if (!a || !b) { missing = `Missing required parent in one environment: ${parent}`; break }
+      if (!a) { missing = `Missing required parent in From: ${parent}`; break }
+      // A parent To lacks is fine when this transfer includes it; otherwise it can be added.
+      if (!b) { if (!included(parent)) missingParents.push(parent); continue }
       if (normalizeId(a.id) !== normalizeId(b.id)) { missing = `Parent item has a different ID in each environment: ${parent}`; break }
     }
     if (missing) { rows.push({ path, scope, outcome: "conflict", parents: 0, message: missing }); continue }
+    if (missingParents.length) {
+      rows.push({ path, scope, outcome: "conflict", parents: 0, missingParents,
+        message: `Missing required parent${missingParents.length === 1 ? "" : "s"} in To: ${missingParents.join(", ")}` })
+      continue
+    }
     const outcome: ReviewOutcome = tree.mergeStrategy === "OverrideExistingTree" && to ? "replace" : !to ? "create" : tree.mergeStrategy === "KeepExistingItem" ? "keep" : "update"
     const empty = { items: new Map<string, Sub>(), truncated: false }
     // With sub-items: compare both trees so the review can say what each sub-item will do.
@@ -148,7 +159,6 @@ export async function reviewPlan(backend: Backend, source: string, destination: 
     // Missing templates, including inherited base templates. A template counts as
     // missing only when the same lookup finds it in From; if From can't find it
     // either, the lookup can't answer for it and it isn't reported.
-    const included = (itemPath: string) => plan.items.some(selected => lower(itemPath) === lower(selected.path) || (selected.scope === "ItemAndDescendants" && lower(itemPath).startsWith(lower(selected.path) + "/")))
     const missingTemplates: MissingTemplate[] = []
     const templatesFirst: string[] = []
     const seen = new Set<string>()
@@ -238,7 +248,8 @@ export async function runTransfer(backend: Backend, source: string, destination:
   const blocked = (await reviewPlan(backend, source, destination, plan)).find(row => row.outcome === "conflict")
   if (blocked) throw new Error(`${blocked.path}: ${blocked.message}`)
 
-  const trees = plan.items.map(item => treeFor(item, plan.mergeStrategy))
+  // Parents before children, so items added for a missing parent import first.
+  const trees = plan.items.map(item => treeFor(item, plan.mergeStrategy)).sort((a, b) => a.itemPath.split("/").length - b.itemPath.split("/").length)
   // Templates go first, in their own transfer, so content that uses them can import.
   const isTemplate = (path: string) => /^\/sitecore\/templates\//i.test(path)
   const groups = [

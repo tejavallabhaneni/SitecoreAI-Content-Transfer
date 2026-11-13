@@ -254,6 +254,19 @@ test("review: a different item at a sub-item's path is reported", async () => {
   assert.deepEqual(row.subItems, [{ path: "/sitecore/content/S/P/Teaser", state: "differs" }])
 })
 
+test("parents: a missing parent is listed, and adding it to the transfer resolves it", async () => {
+  const [row] = await reviewPlan(demoBackend, DEV, STAGING, plan([DEMO_PATHS.missingParentPage]))
+  assert.equal(row.outcome, "conflict")
+  assert.deepEqual(row.missingParents, [DEMO_PATHS.newFolder])
+  const both = plan([DEMO_PATHS.missingParentPage, DEMO_PATHS.newFolder])
+  assert.deepEqual((await reviewPlan(demoBackend, DEV, STAGING, both)).map(r => r.outcome), ["create", "create"])
+  const order = []
+  const spy = { ...demoBackend, pollMs: 0, createTransfer: (env, id, trees) => { order.push(trees.map(t => t.itemPath.split("/").at(-1))); return demoBackend.createTransfer(env, id, trees) } }
+  await runTransfer(spy, DEV, STAGING, both, approve, () => {})
+  assert.deepEqual(order, [["Blog", "Welcome post"]], "parent before child")
+  assert.ok(await demoBackend.item(STAGING, DEMO_PATHS.missingParentPage))
+})
+
 test("import states", () => {
   assert.equal(importState({ state: "Processing" }), "running")
   assert.equal(importState({ state: "Transferred" }), "done")
