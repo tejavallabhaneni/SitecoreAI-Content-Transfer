@@ -6,7 +6,7 @@ test("SitecoreAI status mapping never invents publishing", () => {
   assert.equal(toStatus("Finished"), "success")
   assert.equal(toStatus("InProgress"), "running")
   assert.equal(toStatus("Queued"), "queued")
-  assert.equal(toStatus("Unknown"), "queued")
+  assert.equal(toStatus("Unknown"), "unknown")
   assert.equal(toStatus("Failed"), "error")
 })
 
