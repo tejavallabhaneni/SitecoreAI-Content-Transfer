@@ -86,7 +86,7 @@ export function fromSitecore(
       createdAt: when, updatedAt: validDate(sortedEvents.at(-1)?.date ?? when),
       completedAt: lastState === "Finished" || lastState === "Failed" ? validDate(sortedEvents.at(-1)?.date) : undefined,
       source: null, target: destination, items: [],
-      sourceName: record.SourceName, databaseName: "master", strategy: record.Strategy,
+      sourceName: record.SourceName, databaseName: "Not reported", strategy: record.Strategy,
       historyEvents: sortedEvents,
     })
   }
@@ -103,7 +103,7 @@ export function fromSitecore(
       createdAt: old?.createdAt ?? when, updatedAt: when,
       completedAt: status === "success" || status === "error" ? when : undefined,
       source: null, target: destination, items: [],
-      sourceName: record.SourceName, databaseName: record.DatabaseName || "master",
+      sourceName: record.SourceName, databaseName: record.DatabaseName || old?.databaseName || "Not reported",
       strategy: record.Strategy, totalItemsCount: record.TotalItemsCount,
       transferredItemsCount: record.TransferredItemsCount,
       error: record.ValidationErrors?.join("; ") || (status === "error" ? record.Description : undefined),
