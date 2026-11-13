@@ -9,7 +9,8 @@ export const stepTones = [
 ] as const
 
 export function WorkflowSteps({ active }: { active: 1 | 2 | 3 }) {
-  return <ol aria-label="Transfer steps" className="relative grid grid-cols-3 gap-2 overflow-hidden rounded-xl border bg-card p-3 sm:gap-5 sm:p-4">
+  return <ol aria-label="Transfer steps" className="relative grid grid-cols-3 gap-2 overflow-hidden rounded-xl border bg-card p-3 pt-4 sm:gap-5 sm:p-4 sm:pt-5">
+    <span className="brand-gradient absolute inset-x-0 top-0 h-1" aria-hidden="true" />
     {stepTones.map(({ label, icon: Icon, solid, text }, index) => {
       const step = index + 1
       const current = active === step

@@ -3,8 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useState, useSyncExternalStore } from "react"
-import { useTheme } from "next-themes"
-import { ArrowUpRight, ChevronRight, CircleHelp, FolderTree, LayoutDashboard, Menu, Moon, Plus, Server, ShieldCheck, Sun } from "lucide-react"
+import { ArrowUpRight, ChevronRight, CircleHelp, FolderTree, LayoutDashboard, Menu, Plus, Server, ShieldCheck } from "lucide-react"
 import { DemoBanner } from "@/components/demo-mode"
 import { AppLogo } from "@/components/app-logo"
 import { connectionRevision, isConnected, isDemo, serverRevision, subscribeConnection } from "@/lib/browser-session"
@@ -25,18 +24,10 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
     const active = item.href === "/" ? pathname === "/" : pathname === item.href
     const Icon = item.icon
     return <Link key={item.href} href={item.href} onClick={onNavigate} aria-current={active ? "page" : undefined}
-      className={cn("flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-colors", active ? "relative bg-brand-tint text-brand-ink before:absolute before:inset-y-3 before:left-0 before:w-0.5 before:rounded-full before:bg-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
+      className={cn("flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-colors", active ? "relative bg-brand-tint text-brand-ink before:absolute before:inset-y-3 before:left-0 before:w-0.5 before:rounded-full before:bg-brand-red" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
       <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg", active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground")}><Icon className="size-4" aria-hidden="true" /></span>{item.label}
     </Link>
   })}</nav>
-}
-
-function ThemeToggle() {
-  const { resolvedTheme, setTheme } = useTheme()
-  // Both icons render and CSS picks one, so server and client markup match.
-  return <Button variant="ghost" size="icon" aria-label="Switch between light and dark mode" onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}>
-    <Moon className="dark:hidden" aria-hidden="true" /><Sun className="hidden dark:block" aria-hidden="true" />
-  </Button>
 }
 
 function Brand() {
@@ -65,13 +56,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     </aside>
     <div className="flex min-w-0 flex-1 flex-col">
       <div className="sticky top-0 z-20">
+      <span className="brand-gradient block h-1" aria-hidden="true" />
       <header className="flex min-h-16 items-center justify-between gap-3 border-b bg-card/90 px-4 backdrop-blur sm:px-7">
         <div className="flex min-w-0 items-center gap-3">
           <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open navigation" onClick={() => setOpen(true)}><Menu /></Button>
           <div className="md:hidden"><Brand /></div>
           <div className="hidden items-center gap-2 text-sm md:flex"><span className="text-muted-foreground">Content Transfer</span><ChevronRight className="size-3.5 text-muted-foreground" /><span className="font-medium">{currentPage}</span></div>
         </div>
-        <div className="flex shrink-0 items-center gap-1 sm:gap-2"><ThemeToggle />
+        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
         <Link href="/environments" className={cn("inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium", demo ? "bg-amber-50 text-amber-900" : connected ? "bg-emerald-50 text-emerald-800" : "bg-muted text-muted-foreground")}>
           <span className={cn("size-1.5 rounded-full", demo ? "bg-amber-500" : connected ? "bg-emerald-600" : "bg-gray-400")} />{demo ? "Demo" : connected ? "Connected" : <><span className="sm:hidden">Connect</span><span className="hidden sm:inline">Not connected</span></>}
         </Link></div>
@@ -82,7 +74,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <SheetHeader><SheetTitle><AppLogo /></SheetTitle></SheetHeader><div className="px-3"><NavLinks onNavigate={() => setOpen(false)} /></div>
       </SheetContent></Sheet>
       <main id="main-content" className="flex-1 px-4 py-7 sm:px-7 sm:py-9 lg:px-10">{children}</main>
-      <footer className="mx-4 flex flex-wrap items-center justify-between gap-3 border-t py-4 text-xs text-muted-foreground sm:mx-7 lg:mx-10"><span className="flex items-center gap-2"><ShieldCheck className="size-4 shrink-0 text-choose" aria-hidden="true" />You review and approve every transfer.</span><Link href="/about" className="rounded-sm underline-offset-4 hover:text-primary hover:underline">Independent community tool · About &amp; licences</Link></footer>
+      <footer className="brand-gradient flex flex-wrap items-center justify-between gap-3 px-4 py-6 text-sm text-white sm:px-7 lg:px-10"><span className="flex items-center gap-2"><ShieldCheck className="size-4 shrink-0 text-white" aria-hidden="true" />You review and approve every transfer.</span><Link href="/about" className="rounded-sm underline-offset-4 hover:underline">Independent community tool · About &amp; licences</Link></footer>
     </div>
   </div>
 }
