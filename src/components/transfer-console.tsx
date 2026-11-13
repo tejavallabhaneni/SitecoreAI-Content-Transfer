@@ -41,7 +41,10 @@ export function TransferConsole({ login }: { login: string | null }) {
     setError("")
   }, [login])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial async data synchronization
+    void load()
+  }, [load])
 
   async function createDraft(event: React.FormEvent) {
     event.preventDefault()
