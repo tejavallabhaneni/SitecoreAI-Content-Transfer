@@ -62,9 +62,9 @@ export function JobDetail({ jobId }: { jobId: string }) {
     </Card>}
 
     {job.status === "success" && <Alert>
-      <AlertCircle /><AlertTitle>Imported to destination master</AlertTitle>
+      <AlertCircle /><AlertTitle>Import finished in SitecoreAI</AlertTitle>
       <AlertDescription>
-        SitecoreAI reports the import as finished. Publishing to Experience Edge is separate.
+        SitecoreAI reports this import as finished. Publishing to Experience Edge is separate.
       </AlertDescription>
     </Alert>}
 
@@ -95,7 +95,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
           <CardDescription>Read from the destination Item Transfer API.</CardDescription>
         </CardHeader><CardContent className="space-y-2 text-sm">
           <div><strong>Source file:</strong> {job.sourceName ?? job.name}</div>
-          <div><strong>Database:</strong> {job.databaseName ?? "master"}</div>
+          <div><strong>Database:</strong> {job.databaseName ?? "Not reported"}</div>
           <div><strong>Merge strategy:</strong> {job.strategy ?? "Not supplied"}</div>
           <div><strong>Items in package:</strong> {job.totalItemsCount ?? "Not supplied"}</div>
           <div><strong>Items written:</strong> {job.transferredItemsCount ?? "Not supplied"}</div>
