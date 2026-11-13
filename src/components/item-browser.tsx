@@ -22,8 +22,10 @@ const EMPTY_ITEMS: ContentItem[] = []
 
 export function ItemBrowser() {
   const [query, setQuery] = useState("")
+  const [parentPath, setParentPath] = useState("/sitecore/content")
+  const [currentPath, setCurrentPath] = useState("/sitecore/content")
   const [template, setTemplate] = useState("all")
-  const { data, error, loading, reload } = useApi<{ items: ContentItem[] }>("/api/items")
+  const { data, error, loading, reload } = useApi<{ items: ContentItem[] }>(`/api/items?parent=${encodeURIComponent(currentPath)}`)
   const catalog = data?.items ?? EMPTY_ITEMS
 
   const templates = useMemo(() => {
@@ -49,14 +51,17 @@ export function ItemBrowser() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Content items</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Shared catalog used by transfer jobs. Select items when you create a new transfer — this
-          list is for inspection.
+          Live children of the selected source SitecoreAI authoring item in the master database.
         </p>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Catalog</CardTitle>
+          <form className="flex flex-wrap gap-2" onSubmit={event => { event.preventDefault(); setCurrentPath(parentPath); }}>
+            <Input aria-label="Parent item path" value={parentPath} onChange={event => setParentPath(event.target.value)} className="min-w-48 flex-1" />
+            <button type="submit" className="rounded-md border px-4 py-2 text-sm">Browse path</button>
+          </form>
           <CardDescription>
             Paths follow the Sitecore content tree. Versions and languages are per item.
           </CardDescription>
@@ -120,7 +125,7 @@ export function ItemBrowser() {
                 <p className="truncate font-mono text-xs text-muted-foreground">{item.path}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {item.template} · {item.language} v{item.version} · updated{" "}
-                  {formatDateTime(item.lastModified)}
+                  {item.lastModified ? formatDateTime(item.lastModified) : "Not provided"}
                 </p>
               </li>
             ))}

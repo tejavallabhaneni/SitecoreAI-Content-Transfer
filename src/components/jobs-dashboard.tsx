@@ -66,8 +66,7 @@ export function JobsDashboard() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Transfer jobs</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Move Sitecore content items from a source environment to a target. Review
-            AI field mappings, then run the transfer.
+            Live transfer history and import statuses from SitecoreAI. No application database.
           </p>
         </div>
         <Link href="/jobs/new" className={cn(buttonVariants(), "self-start sm:self-auto")}>
@@ -79,7 +78,7 @@ export function JobsDashboard() {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Queued" value={summary?.queued} hint="Waiting to run" />
         <StatCard label="Running" value={summary?.running} hint="Publishing items now" />
-        <StatCard label="Success" value={summary?.success} hint="Completed cleanly" />
+        <StatCard label="Success" value={summary?.success} hint="Imported to master" />
         <StatCard label="Error" value={summary?.error} hint="Need attention" />
       </div>
 
@@ -87,7 +86,7 @@ export function JobsDashboard() {
         <CardHeader className="border-b">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <CardTitle>Recent transfers</CardTitle>
+              <CardTitle>SitecoreAI transfer history</CardTitle>
               <CardDescription>
                 Filter by status or search by job name or environment.
               </CardDescription>
@@ -178,12 +177,12 @@ export function JobsDashboard() {
                         </TableCell>
                         <TableCell className="max-w-sm whitespace-normal text-muted-foreground">
                           <span className="inline-flex flex-wrap items-center gap-1">
-                            {job.source?.name ?? "Unknown source"}
+                            {job.source?.name ?? "Source package"}
                             <ArrowRight className="size-3.5 shrink-0" />
                             {job.target?.name ?? "Unknown target"}
                           </span>
                         </TableCell>
-                        <TableCell>{job.itemIds.length}</TableCell>
+                        <TableCell>{job.itemIds.length || "—"}</TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-1">
                             <StatusBadge status={job.status} />
@@ -199,7 +198,7 @@ export function JobsDashboard() {
                         </TableCell>
                         <TableCell>
                           <Link
-                            href={`/jobs/${job.id}`}
+                            href={`/jobs/${encodeURIComponent(job.id)}`}
                             className={buttonVariants({ variant: "ghost", size: "sm" })}
                           >
                             Open
@@ -214,7 +213,7 @@ export function JobsDashboard() {
                 {jobs.map((job) => (
                   <Link
                     key={job.id}
-                    href={`/jobs/${job.id}`}
+                    href={`/jobs/${encodeURIComponent(job.id)}`}
                     className="rounded-xl border p-4 transition-colors hover:bg-muted/40"
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -222,7 +221,7 @@ export function JobsDashboard() {
                       <StatusBadge status={job.status} />
                     </div>
                     <p className="mt-2 text-sm text-muted-foreground">
-                      {job.source?.name ?? "Unknown source"} → {job.target?.name ?? "Unknown target"}
+                      {job.source?.name ?? "Source package"} → {job.target?.name ?? "Unknown target"}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {job.itemIds.length} items · {formatRelative(job.updatedAt)}

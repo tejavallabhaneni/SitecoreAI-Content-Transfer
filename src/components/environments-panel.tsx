@@ -21,8 +21,7 @@ export function EnvironmentsPanel() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Environments</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Connected XM Cloud endpoints this workspace can transfer between. Disconnected targets
-          cannot be selected as a destination.
+          Configured source and destination SitecoreAI authoring environments. Connectivity is checked against the real Authoring API.
         </p>
       </div>
 

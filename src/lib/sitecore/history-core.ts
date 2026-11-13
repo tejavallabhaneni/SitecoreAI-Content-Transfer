@@ -21,7 +21,7 @@ export type SitecoreHistory = {
 }
 
 export function toStatus(state?: string): "queued" | "running" | "success" | "error" {
-  if (state === "Queued") return "queued"
+  if (state === "Queued" || state === "Unknown") return "queued"
   if (state === "InProgress") return "running"
   if (state === "Finished") return "success"
   return "error"
