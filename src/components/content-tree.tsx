@@ -80,7 +80,8 @@ export function ContentTree({ backend, env, compareTo, selected, onToggle, onSco
           {onToggle && !isRoot && <Checkbox checked={Boolean(selected?.has(node.path.toLowerCase()))} onCheckedChange={on => onToggle(node, Boolean(on))} aria-label={`Select ${node.name}`} />}
           <ItemIcon sources={node.icons} fallback={Fallback} thumbnail={media && !node.hasChildren} />
           <button type="button" className="min-w-0 flex-1 truncate text-left text-[15px]" onClick={() => node.hasChildren ? toggleOpen(node.path) : onToggle && !isRoot && onToggle(node, !selected?.has(node.path.toLowerCase()))} title={node.template ? `${node.path}\nTemplate: ${node.template}` : node.path}>{node.name}</button>
-          {node.template && <span className="hidden max-w-[11rem] shrink-0 truncate text-xs text-muted-foreground sm:inline" title={`Template: ${node.template}`}>{node.template}</span>}
+          {node.template ? <span className="hidden max-w-[11rem] shrink-0 truncate text-xs text-muted-foreground sm:inline" title={`Template: ${node.template}`}>{node.template}</span>
+            : !isRoot && <span className="hidden shrink-0 text-xs text-rose-300 sm:inline" title="This item’s template doesn’t exist in this environment">Template missing</span>}
           {state && <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold", badges[state].className)}>{badges[state].label}</span>}
         </div>
         {onScope && node.hasChildren && selected?.has(node.path.toLowerCase()) && <div className="flex flex-wrap items-center gap-2 pb-1.5 text-xs text-muted-foreground" style={{ paddingLeft: pad + 92 }}>

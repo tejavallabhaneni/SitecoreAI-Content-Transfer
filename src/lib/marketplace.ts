@@ -296,3 +296,23 @@ export const marketplaceBackend: Backend = {
     return { state: text(data.BlobState, data.blobState, data.Status, data.status) || "Unknown", ...(error ? { error } : {}) }
   },
 }
+
+/**
+ * Troubleshooting for item icons in one environment: the learned icon host,
+ * raw icon values for a few items under `path`, the URLs the tree tries for
+ * each, and the item fields this environment's Authoring schema offers.
+ * Read-only; shown in the collapsed Troubleshooting panel.
+ */
+export async function iconDiagnostics(env: string, path: string) {
+  const { items } = await childItems(env, path)
+  const sample = items.slice(0, 4)
+  const detailed = await recoverDetails(env, sample.map(item => ({ ...item, icon: item.icon })))
+  const origin = await iconOrigin(env, (detailed.find(item => iconText(item.icon)) ?? detailed[0])?.itemId ?? "")
+  const schema = await graphqlItem(env, `query Fields { item: __type(name: "Item") { fields { name } } }`, {})
+  const fields = ((record(schema.item)?.fields as unknown[]) ?? []).map(field => text(record(field)?.name)).filter(Boolean)
+  return {
+    preview: previewIds.has(env), origin, tier: startTier.get(env) ?? 0, learned: [...learnedOrigins],
+    items: detailed.map(item => ({ name: item.name, icon: iconText(item.icon), sources: iconSources(iconText(item.icon), origin) })),
+    fields, schemaErrors: schema.errors,
+  }
+}
