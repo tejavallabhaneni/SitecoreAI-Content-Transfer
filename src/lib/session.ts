@@ -74,9 +74,9 @@ export function dropFromDraft(id: string, paths: string[]) {
   const draft = state.drafts.get(id)
   if (!draft || draft.status !== "draft") throw new Error("Only a transfer that hasn’t started can be changed.")
   const drop = new Set(paths.map(path => path.toLowerCase()))
-  const itemPaths = draft.plan.itemPaths.filter(path => !drop.has(path.toLowerCase()))
-  if (!itemPaths.length) throw new Error("Nothing would be left to transfer. Choose different content.")
-  update(id, { plan: { ...draft.plan, itemPaths } })
+  const items = draft.plan.items.filter(item => !drop.has(item.path.toLowerCase()))
+  if (!items.length) throw new Error("Nothing would be left to transfer. Choose different content.")
+  update(id, { plan: { ...draft.plan, items } })
 }
 
 export async function checkDraft(id: string): Promise<ReviewRow[]> {
@@ -85,12 +85,12 @@ export async function checkDraft(id: string): Promise<ReviewRow[]> {
   return reviewPlan(backend(), draft.source.id, draft.destination.id, draft.plan)
 }
 
-export async function startDraft(id: string, overwriteApproved: boolean) {
+export async function startDraft(id: string, approval: { overwriteApproved: boolean; deleteApproved: boolean }) {
   const draft = state.drafts.get(id)
   if (!draft || draft.status !== "draft") throw new Error("This transfer has already started.")
   update(id, { status: "running", startedAt: new Date().toISOString(), phase: 1, stage: "Starting" })
   try {
-    const result = await runTransfer(backend(), draft.source.id, draft.destination.id, draft.plan, { approved: true, overwriteApproved },
+    const result = await runTransfer(backend(), draft.source.id, draft.destination.id, draft.plan, { approved: true, ...approval },
       progress => update(id, { phase: progress.phase, stage: progress.stage, items: progress.items }))
     update(id, { status: "done", phase: 5, items: result.items, finishedAt: new Date().toISOString(), ...(result.partial ? { error: "Some items did not import. Check the destination." } : {}) })
   } catch (error) {

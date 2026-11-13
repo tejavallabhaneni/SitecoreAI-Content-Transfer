@@ -77,19 +77,26 @@ export async function installedEnvironments(): Promise<Env[]> {
     const id = text(context?.live, resource.contextId, context?.preview)
     if (!id || seen.has(id)) continue
     seen.add(id)
+    const preview = text(context?.preview)
+    if (preview) previewIds.set(id, preview)
     envs.push({ id, name: text(resource.tenantDisplayName, resource.environmentName, resource.tenantName) || id, tenant: text(resource.tenantName) || undefined })
   }
   return envs
 }
 
-async function graphql<T>(env: string, query: string, variables: Record<string, unknown>): Promise<T> {
+/** One Authoring GraphQL `item(...)` query. Returns what came back, errors and all. */
+async function graphqlItem(env: string, query: string, variables: Record<string, unknown>): Promise<{ item: unknown; errors: string[] }> {
   const sdkClient = await sdk()
   const result = await race(sdkClient.mutate("xmc.authoring.graphql" as never, { params: { query: { sitecoreContextId: env }, body: { query, variables } } } as never), CALL_TIMEOUT_MS, "Reading content")
-  let payload = record(result)
-  for (let depth = 0; depth < 4 && payload && !("item" in payload) && !payload.errors; depth++) payload = record(payload.data)
-  const errors = payload?.errors
-  if (Array.isArray(errors) && errors.length) throw new Error(`SitecoreAI could not read the content tree: ${text(record(errors[0])?.message) || "GraphQL error"}`)
-  return (payload ?? {}) as T
+  let level = record(result)
+  let errors: unknown[] = []
+  let item: unknown = undefined
+  for (let depth = 0; depth < 5 && level; depth++) {
+    if (Array.isArray(level.errors) && level.errors.length) errors = level.errors
+    if ("item" in level) { item = level.item; break }
+    level = record(level.data)
+  }
+  return { item: item ?? null, errors: errors.map(error => text(record(error)?.message, error) || "GraphQL error") }
 }
 
 async function call<T>(kind: "query" | "mutate", operation: string, env: string, params: Record<string, unknown>, timeout = CALL_TIMEOUT_MS): Promise<T | null> {
@@ -100,22 +107,95 @@ async function call<T>(kind: "query" | "mutate", operation: string, env: string,
   return unwrap<T>(await race(promise as Promise<unknown>, timeout, operation), operation)
 }
 
-type RawItem = { itemId: string; name: string; path: string; template?: { name?: string }; children?: { nodes?: unknown[] } }
-const FIELDS = "itemId name path template { name } children(first: 1) { nodes { itemId } }"
-const node = (item: RawItem): TreeNode => ({ id: item.itemId, name: item.name, path: item.path, template: item.template?.name ?? "", hasChildren: Boolean(item.children?.nodes?.length) })
+type RawItem = { itemId: string; name: string; path: string; icon?: unknown; template?: { name?: string } | null; children?: { nodes?: unknown[] } | null }
+
+// Richest first. An item whose template is missing (an all-zeros template ID)
+// makes `template` and `icon` fail for its whole folder, so the tree steps down
+// and keeps whatever the richer attempt did return. A field an environment's
+// schema doesn't have is skipped for that environment from then on.
+const HAS_CHILDREN = "children(first: 1) { nodes { itemId } }"
+const TIERS = [`itemId name path icon template { name } ${HAS_CHILDREN}`, `itemId name path template { name } ${HAS_CHILDREN}`, `itemId name path ${HAS_CHILDREN}`]
+const PAGE = 500
+const startTier = new Map<string, number>()
+const brokenTemplate = (message: string) => /00000000-0000-0000-0000-000000000000/.test(message) || (/template/i.test(message) && /(does ?n[o']t exist|access rights)/i.test(message))
+const schemaGap = (message: string) => /cannot query field|unknown (field|argument)|field undefined|validation error/i.test(message)
+
+// Item icons are served by each environment's CM host. Authoring GraphQL gives a
+// relative or themed path, so the host is learned once per environment from the
+// preview API, which answers with an absolute icon URL.
+const previewIds = new Map<string, string>()
+const iconOrigins = new Map<string, Promise<string>>()
+const absoluteOrigin = (url: string) => { try { return /^https?:\/\//i.test(url) ? new URL(url).origin : "" } catch { return "" } }
+const iconText = (value: unknown) => typeof value === "string" ? value.trim() : text(record(value)?.url, record(value)?.value)
+
+function iconOrigin(env: string, sampleId: string): Promise<string> {
+  const known = iconOrigins.get(env)
+  if (known) return known
+  const learning = (async () => {
+    const preview = previewIds.get(env)
+    if (!preview) return ""
+    const sdkClient = await sdk()
+    const result = await race(sdkClient.mutate("xmc.preview.graphql" as never, { params: { query: { sitecoreContextId: preview },
+      body: { query: "query Icon($path: String!, $language: String!) { item(path: $path, language: $language) { icon } }", variables: { path: sampleId, language: "en" } } } } as never), 8000, "Finding item icons")
+    let level = record(result)
+    for (let depth = 0; depth < 5 && level && !("item" in level); depth++) level = record(level.data)
+    return absoluteOrigin(iconText(record(level?.item)?.icon))
+  })().catch(() => "")
+  iconOrigins.set(env, learning)
+  return learning
+}
+
+export function iconUrl(raw: string, origin: string): string | undefined {
+  if (!raw) return undefined
+  const sized = (url: string) => url.replace(/\/\d+x\d+\//, "/32x32/")
+  if (/^https?:\/\//i.test(raw)) return sized(raw)
+  if (/^\/[-~]\/(icon|media)\//i.test(raw)) return origin ? sized(origin + raw) : undefined
+  return origin ? `${origin}/-/icon/${sized(raw.replace(/^~?\/?/, ""))}` : undefined
+}
+
+async function childItems(env: string, path: string): Promise<RawItem[]> {
+  let richer = new Map<string, RawItem>()
+  let lastError = ""
+  for (let tier = startTier.get(env) ?? 0; tier < TIERS.length; tier++) {
+    const { item, errors } = await graphqlItem(env, `query Children($path: String!) { item(where: { database: "master", path: $path }) { itemId children(first: ${PAGE}) { nodes { ${TIERS[tier]} } } } }`, { path })
+    const nodes = ((record(item)?.children as RawItem["children"])?.nodes ?? []).filter((node): node is RawItem => Boolean(record(node)?.itemId))
+    const merged = nodes.map(node => ({ ...richer.get(node.itemId), ...node, icon: node.icon ?? richer.get(node.itemId)?.icon, template: node.template ?? richer.get(node.itemId)?.template }))
+    if (!errors.length) {
+      if (!item) throw new Error("That folder doesn’t exist in this environment.")
+      return merged
+    }
+    lastError = errors[0]
+    const all = errors.join(" ")
+    if (brokenTemplate(all)) { richer = new Map([...richer, ...merged.map(node => [node.itemId, node] as const)]); continue }
+    if (schemaGap(all)) { startTier.set(env, tier + 1); continue }
+    if (item) return merged
+    break
+  }
+  if (richer.size) return [...richer.values()]
+  throw new Error(`SitecoreAI couldn’t read this folder: ${lastError}`)
+}
+
+async function toNodes(env: string, items: RawItem[]): Promise<TreeNode[]> {
+  const icons = items.map(item => iconText(item.icon))
+  const absolute = icons.map(absoluteOrigin).find(Boolean)
+  if (absolute && !iconOrigins.has(env)) iconOrigins.set(env, Promise.resolve(absolute))
+  const needsHost = icons.some(icon => icon && !/^https?:/i.test(icon))
+  const origin = needsHost ? await iconOrigin(env, items[0].itemId) : absolute ?? ""
+  return items.map((item, index) => ({ id: item.itemId, name: item.name, path: item.path, template: item.template?.name ?? "",
+    hasChildren: Boolean(item.children?.nodes?.length), icon: iconUrl(icons[index], origin) }))
+}
 
 export const marketplaceBackend: Backend = {
   pollMs: 2000,
   async children(env, path) {
-    const data = await graphql<{ item?: { children?: { nodes?: RawItem[] } } | null }>(env,
-      `query Children($path: String!) { item(where: { database: "master", path: $path }) { itemId children(first: 200) { nodes { ${FIELDS} } } } }`, { path })
-    if (!data.item) throw new Error("That folder doesn’t exist in this environment.")
-    return (data.item.children?.nodes ?? []).map(node)
+    const items = await childItems(env, path)
+    return items.length ? toNodes(env, items) : []
   },
   async item(env, path) {
-    const data = await graphql<{ item?: { itemId: string; path: string } | null }>(env,
-      `query Item($path: String!) { item(where: { database: "master", path: $path }) { itemId path } }`, { path })
-    return data.item ? { id: data.item.itemId, path: data.item.path } : null
+    const { item, errors } = await graphqlItem(env, `query Item($path: String!) { item(where: { database: "master", path: $path }) { itemId path } }`, { path })
+    const found = record(item)
+    if (!found && errors.length) throw new Error(`SitecoreAI couldn’t check ${path}: ${errors[0]}`)
+    return found ? { id: String(found.itemId), path: String(found.path) } : null
   },
   async createTransfer(env, transferId, trees) {
     await call("mutate", "xmc.contentTransfer.createContentTransfer", env, { body: { transferId, configuration: { dataTrees: trees } } })
