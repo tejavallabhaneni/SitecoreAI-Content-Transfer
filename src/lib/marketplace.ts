@@ -125,6 +125,12 @@ const schemaGap = (message: string) => /cannot query field|unknown (field|argume
 // preview API, which answers with an absolute icon URL.
 const previewIds = new Map<string, string>()
 const iconOrigins = new Map<string, Promise<string>>()
+const templateCache = new Map<string, boolean>()
+/** 32 hex digits (with or without braces and dashes) as a dashed GUID. */
+export const asGuid = (id: string) => {
+  const hex = id.replace(/[{}-]/g, "")
+  return /^[0-9a-f]{32}$/i.test(hex) ? `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}` : id
+}
 const absoluteOrigin = (url: string) => { try { return /^https?:\/\//i.test(url) ? new URL(url).origin : "" } catch { return "" } }
 const iconText = (value: unknown) => typeof value === "string" ? value.trim() : text(record(value)?.url, record(value)?.value)
 
@@ -280,9 +286,28 @@ export const marketplaceBackend: Backend = {
     return found ? { id: String(found.itemId), path: String(found.path), templateId: text(template?.templateId) || undefined, templateName: text(template?.name) || undefined } : null
   },
   async templateExists(env, templateId) {
-    const { item, errors } = await graphqlItem(env, `query Template($id: ID!) { item(where: { database: "master", itemId: $id }) { itemId } }`, { id: templateId })
-    if (!item && errors.length) throw new Error(`SitecoreAI couldn’t check template ${templateId}: ${errors[0]}`)
-    return Boolean(record(item)?.itemId)
+    const key = `${env}:${templateId.toLowerCase()}`
+    const cached = templateCache.get(key)
+    if (cached !== undefined) return cached
+    // Template IDs come back as 32 hex digits; look them up as a dashed GUID and,
+    // in case a schema wants it, the braced form too.
+    const dashed = asGuid(templateId)
+    const sdkClient = await sdk()
+    const query = `query Template { a: item(where: { database: "master", itemId: ${JSON.stringify(dashed)} }) { itemId } b: item(where: { database: "master", itemId: ${JSON.stringify(`{${dashed.toUpperCase()}}`)} }) { itemId } }`
+    const result = await race(sdkClient.mutate("xmc.authoring.graphql" as never, { params: { query: { sitecoreContextId: env }, body: { query, variables: {} } } } as never), CALL_TIMEOUT_MS, "Checking templates")
+    let level = record(result)
+    let errors: unknown[] = []
+    for (let depth = 0; depth < 5 && level && !("a" in level); depth++) { if (Array.isArray(level.errors)) errors = level.errors; level = record(level.data) }
+    const exists = Boolean(record(level?.a)?.itemId || record(level?.b)?.itemId)
+    if (!exists && !level && errors.length) throw new Error(`SitecoreAI couldn’t check template ${dashed}: ${text(record(errors[0])?.message) || "GraphQL error"}`)
+    templateCache.set(key, exists)
+    return exists
+  },
+  async childrenForCheck(env, path) {
+    // The comparison only needs IDs, paths and templates: no icons or thumbnails.
+    const { items, fellBack } = await childItems(env, path)
+    const detailed = fellBack ? await recoverDetails(env, items) : items
+    return detailed.map(item => ({ id: item.itemId, name: item.name, path: item.path, template: item.template?.name ?? "", templateId: item.template?.templateId || undefined, hasChildren: Boolean(item.children?.nodes?.length) }))
   },
   async createTransfer(env, transferId, trees) {
     await call("mutate", "xmc.contentTransfer.createContentTransfer", env, { body: { transferId, configuration: { dataTrees: trees } } })
