@@ -64,7 +64,7 @@ function fullTree(): Item[] {
   ]
 }
 
-type Packaged = { polls: number; chunkSetId: string; chunks: string[] }
+type Packaged = { polls: number; chunkSetId: string; chunks: string[]; media: boolean }
 type Entry = { item: Item; merge: DataTree["mergeStrategy"]; root: string }
 type File = { entries: Entry[]; consumed: boolean; polls: number; state?: string; error?: string }
 
@@ -133,7 +133,9 @@ export const demoBackend: Backend = {
     // Two items per chunk; each chunk is the JSON the destination will import.
     const chunks: string[] = []
     for (let index = 0; index < Math.max(1, entries.length); index += 2) chunks.push(JSON.stringify(entries.slice(index, index + 2)))
-    packaged.set(`${env}:${transferId}`, { polls: 0, chunkSetId: crypto.randomUUID(), chunks })
+    // Like Sitecore, each chunk says whether it's media (its Content-Disposition IsMedia).
+    const media = trees.length > 0 && trees.every(tree => /^\/sitecore\/media library(\/|$)/i.test(tree.itemPath))
+    packaged.set(`${env}:${transferId}`, { polls: 0, chunkSetId: crypto.randomUUID(), chunks, media })
   },
   async transferStatus(env, transferId) {
     await wait(delay)
@@ -147,7 +149,7 @@ export const demoBackend: Backend = {
     await wait(delay)
     const op = packaged.get(`${env}:${transferId}`)
     if (!op || op.chunkSetId !== chunkSetId || !op.chunks[chunkId]) throw new Error(`Chunk ${chunkId} came back empty.`)
-    return new Blob([op.chunks[chunkId]], { type: "application/octet-stream" })
+    return { data: new Blob([op.chunks[chunkId]], { type: "application/octet-stream" }), isMedia: op.media }
   },
   async saveChunk(env, transferId, chunkSetId, chunkId, chunk) {
     await wait(delay)
