@@ -84,7 +84,7 @@ export function JobsDashboard() {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Queued" value={summary?.queued} hint="Waiting to run" />
         <StatCard label="Running" value={summary?.running} hint="SitecoreAI imports" />
-        <StatCard label="Success" value={summary?.success} hint="Imported to master" />
+        <StatCard label="Success" value={summary?.success} hint="Import finished" />
         <StatCard label="Error" value={summary?.error} hint="Need attention" />
       </div>
 
