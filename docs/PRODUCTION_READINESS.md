@@ -1,52 +1,46 @@
-# Production readiness — work required
+# Production-readiness notes
 
-## Status
+## Stateless design decision
 
-The UI and API routes currently use fixed seed environments, content items,
-field mappings and simulated transfer jobs. Real SitecoreAI content is never
-moved. The current `src/lib/store.ts` is not a production database.
+This project intentionally maintains **no application database**. Each
+operator deploys it with their own two SitecoreAI authoring environment
+automation clients and a GitHub OAuth allowlist. All content comes from the
+source Authoring GraphQL API; active and historical transfers are queried
+directly from the destination Item Transfer API.
 
-As a first security measure, simulated API routes are available only when
-`ENABLE_DEMO_MODE=true` outside production. `GET /api/health` intentionally
-returns HTTP 503. The server-side `src/lib/sitecore/client.ts` supports OAuth
-tokens and restricted API requests but is **not wired into transfer jobs**. A separate
-`src/lib/sitecore/native-transfer.ts` implements the documented API sequence
-as a worker-only foundation. It must not be exposed to users until preflight,
-authorization, durability, idempotency, and real staging validation exist.
+No simulated content, fake AI mapping, or local runtime.json data is used.
+The UI keeps the original dashboard, item browser and transfer wizard.
 
-## Blocking work
+## What the read-only APIs actually guarantee
 
-1. **Identity & permissions:** real authenticated sessions and request-level
-   organization/environment authorization on every API route.
-2. **Live environment discovery:** permission-checked source/destination CM
-   environments and item hierarchy; remove seed fixtures from live mode.
-3. **Native API worker:** Content Transfer API operation creation, polling,
-   binary chunk streaming, chunk-set completion, then destination Item
-   Transfer API blob consumption and terminal-state verification.
-4. **Preflight:** parent chain IDs, item hierarchy, scope, languages/versions,
-   merge strategies and destructive-operation confirmation.
-5. **Durability:** database, persistent job queue, worker process, resumable
-   chunk checkpoints, idempotency and rate-limited retry.
-6. **Accuracy:** actual progress and errors; distinguish import-to-master
-   from publishing. Fake AI mappings must be removed or explicitly kept only
-   in the separate demo flow.
-7. **Quality:** unit tests, mocked API contract tests, integration tests in
-   SitecoreAI staging, large media, rollback, logs, and alerting.
-8. **Release:** full git-history secret scan, company code/publication rights,
-   open-source license selection, CI, branch rules, CODEOWNERS and docs.
+- `GET /transfers`: current/completed destination import statuses.
+- `GET /history`: previous consumed sources with state transition events.
+- `GET /transfers/:id`: available details/validation errors.
+- Authoring GraphQL: live content hierarchy at a selected parent.
 
-## Official API workflow
+The source export stage has a different Content Transfer API; it is **not**
+listed in the destination import history until a package is consumed.
 
-The source Content Transfer API creates an operation and exposes chunk sets.
-Stream every chunk **without altering its bytes** to the destination; complete
-each chunk set to create .raif blobs. The destination Item Transfer API imports
-those blobs into master. A completed transfer does **not** imply content
-publishing. Organization Owner or Organization Admin access is required.
+## Controlled staging-write flow
 
-- https://api-docs.sitecore.com/sai/content-transfer-api/section/base-url
-- https://api-docs.sitecore.com/sai/item-transfer-api/section/base-url
+The bounded Vercel endpoint can perform a single-item Content Transfer and
+Item Transfer sequence after fresh parent-ID preflight and explicit
+confirmation. It streams progress over an HTTP response and does not persist
+data. The operator must maintain the open connection.
 
-## Release criteria
+## Outstanding before full production certification
 
-Do not mark this repository production-ready until every blocking item above
-is implemented and demonstrated against test environments.
+- External SitecoreAI staging E2E validation with real tenant permissions.
+- Vercel timeout/disconnection recovery, durable or Sitecore-native
+  resumability, idempotent retry, and import-state reconciliation.
+- Source/export and destination blob cleanup after success/failure.
+- Media, multilingual, version, conflict and large-tree tests.
+- Improved UI hierarchy pagination and multiple-item batching.
+- Full security/permission testing and secret/history scan.
+- GitHub branch protection, approved license and company asset rights.
+- Consider Vercel Workflow or an alternative durable execution service if
+  long transfers must survive request termination. That is a product choice
+  separate from storing user content/history.
+
+Do not label this pre-release build production-certified until those release
+gates pass.
