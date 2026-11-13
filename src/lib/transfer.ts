@@ -2,11 +2,26 @@
 // Pure TypeScript with no browser or Next.js imports, so it runs in unit tests.
 
 export type Env = { id: string; name: string; tenant?: string }
-export type TreeNode = { id: string; name: string; path: string; template: string; hasChildren: boolean }
+export type TreeNode = { id: string; name: string; path: string; template: string; hasChildren: boolean; icon?: string }
+/** "SingleItem" copies just the item; "ItemAndDescendants" copies it with every item under it. */
 export type Scope = "SingleItem" | "ItemAndDescendants"
-export type Merge = "KeepExistingItem" | "OverrideExistingItem"
-export type Plan = { itemPaths: string[]; scope: Scope; mergeStrategy: Merge }
+/**
+ * What happens when an item already exists in the destination:
+ * - KeepExistingItem: leave it; only missing items are written.
+ * - OverrideExistingItem: replace it with the source version.
+ * - OverrideExistingTree: make the destination tree match the source exactly,
+ *   deleting destination items under it that the source doesn't have.
+ */
+export type Merge = "KeepExistingItem" | "OverrideExistingItem" | "OverrideExistingTree"
+export type Selection = { path: string; scope: Scope }
+export type Plan = { items: Selection[]; mergeStrategy: Merge }
 export type DataTree = { itemPath: string; scope: Scope; mergeStrategy: Merge }
+
+/** Replacing a whole tree only makes sense with its sub-items; a single item is overwritten instead. */
+export const treeFor = (item: Selection, merge: Merge): DataTree => ({
+  itemPath: item.path, scope: item.scope,
+  mergeStrategy: merge === "OverrideExistingTree" && item.scope !== "ItemAndDescendants" ? "OverrideExistingItem" : merge,
+})
 export type ChunkSet = { chunkSetId: string; chunkCount: number; totalItemCount: number }
 
 /** Everything the app needs from one SitecoreAI environment, addressed by environment ID. */
@@ -31,19 +46,36 @@ const lower = (path: string) => path.toLowerCase()
 
 /** Checks a plan before it becomes a draft. Returns an error message, or "" when it's fine. */
 export function planProblem(plan: Plan): string {
-  if (!plan.itemPaths.length) return "Tick at least one item in the source tree."
-  if (plan.itemPaths.length > 20) return "Select at most 20 items. Include children instead of ticking each one."
-  const paths = plan.itemPaths.map(lower)
+  if (!plan.items.length) return "Tick at least one item in the From tree."
+  if (plan.items.length > 20) return "Select at most 20 items. Use “with sub-items” instead of ticking each one."
+  const paths = plan.items.map(item => lower(item.path))
   if (paths.some(path => ROOTS.includes(path) || !/^\/sitecore\/(content|media library)\//.test(path))) return "Choose items under Content or Media Library, not the root folders."
   if (new Set(paths).size !== paths.length) return "The same item is selected twice."
-  if (plan.scope === "ItemAndDescendants" && paths.some(path => paths.some(parent => parent !== path && path.startsWith(parent + "/")))) {
-    return "One selected item is inside another. With children included, tick only the higher item."
-  }
+  const inside = plan.items.find(item => plan.items.some(parent => parent !== item && parent.scope === "ItemAndDescendants" && lower(item.path).startsWith(lower(parent.path) + "/")))
+  if (inside) return `“${inside.path.split("/").at(-1)}” is already included by a selected item with sub-items. Untick it, or copy the parent as a single item.`
   return ""
 }
 
-export type ReviewOutcome = "create" | "update" | "keep" | "conflict"
-export type ReviewRow = { path: string; outcome: ReviewOutcome; parents: number; message?: string }
+export type ReviewOutcome = "create" | "update" | "replace" | "keep" | "conflict"
+export type ReviewRow = { path: string; scope: Scope; outcome: ReviewOutcome; parents: number; message?: string; removes?: string[]; removesTruncated?: boolean }
+
+const SUBTREE_LIMIT = 2000
+/** Every item under `path` (not the item itself), as id → path, up to a limit. */
+async function subtree(backend: Backend, env: string, path: string): Promise<{ items: Map<string, string>; truncated: boolean }> {
+  const items = new Map<string, string>()
+  const queue = [path]
+  while (queue.length) {
+    const next = queue.shift()!
+    let children: TreeNode[] = []
+    try { children = await backend.children(env, next) } catch { if (next === path) return { items, truncated: false }; continue }
+    for (const child of children) {
+      if (items.size >= SUBTREE_LIMIT) return { items, truncated: true }
+      items.set(normalizeId(child.id), child.path)
+      if (child.hasChildren) queue.push(child.path)
+    }
+  }
+  return { items, truncated: false }
+}
 
 /** Parent folders that must already exist, with the same IDs, in the destination. */
 export function parentPaths(path: string): string[] {
@@ -58,10 +90,12 @@ export function parentPaths(path: string): string[] {
 export async function reviewPlan(backend: Backend, source: string, destination: string, plan: Plan): Promise<ReviewRow[]> {
   if (source === destination) throw new Error("Pick two different environments.")
   const rows: ReviewRow[] = []
-  for (const path of plan.itemPaths) {
+  for (const selection of plan.items) {
+    const { path, scope } = selection
+    const tree = treeFor(selection, plan.mergeStrategy)
     const [from, to] = await Promise.all([backend.item(source, path), backend.item(destination, path)])
-    if (!from) { rows.push({ path, outcome: "conflict", parents: 0, message: "Source item was not found" }); continue }
-    if (to && normalizeId(to.id) !== normalizeId(from.id)) { rows.push({ path, outcome: "conflict", parents: 0, message: "Destination item at the same path has a different Sitecore item ID" }); continue }
+    if (!from) { rows.push({ path, scope, outcome: "conflict", parents: 0, message: "Source item was not found" }); continue }
+    if (to && normalizeId(to.id) !== normalizeId(from.id)) { rows.push({ path, scope, outcome: "conflict", parents: 0, message: "Destination item at the same path has a different Sitecore item ID" }); continue }
     let missing = ""
     const parents = ["/sitecore/" + path.split("/")[2], ...parentPaths(path)]
     for (const parent of parents) {
@@ -69,8 +103,15 @@ export async function reviewPlan(backend: Backend, source: string, destination: 
       if (!a || !b) { missing = `Missing required parent in one environment: ${parent}`; break }
       if (normalizeId(a.id) !== normalizeId(b.id)) { missing = `Parent item has a different ID in each environment: ${parent}`; break }
     }
-    if (missing) { rows.push({ path, outcome: "conflict", parents: 0, message: missing }); continue }
-    rows.push({ path, parents: parents.length, outcome: !to ? "create" : plan.mergeStrategy === "OverrideExistingItem" ? "update" : "keep" })
+    if (missing) { rows.push({ path, scope, outcome: "conflict", parents: 0, message: missing }); continue }
+    if (tree.mergeStrategy === "OverrideExistingTree" && to) {
+      // Show exactly what replacing the tree would delete: items under it in To that From doesn't have.
+      const [fromTree, toTree] = await Promise.all([subtree(backend, source, path), subtree(backend, destination, path)])
+      const removes = [...toTree.items].filter(([id]) => !fromTree.items.has(id)).map(([, itemPath]) => itemPath).sort()
+      rows.push({ path, scope, parents: parents.length, outcome: "replace", removes, removesTruncated: fromTree.truncated || toTree.truncated })
+      continue
+    }
+    rows.push({ path, scope, parents: parents.length, outcome: !to ? "create" : tree.mergeStrategy === "KeepExistingItem" ? "keep" : "update" })
   }
   return rows
 }
@@ -102,16 +143,25 @@ export function importState(state: { state: string; error?: string }): "running"
  * to the destination, and the destination imports the resulting file into
  * master. Media and content travel in separate transfers.
  */
+export type Approval = { approved: boolean; overwriteApproved: boolean; deleteApproved?: boolean }
+/** Which approvals a plan needs: overwriting for either override, deleting for a tree replacement. */
+export function approvalsFor(plan: Plan) {
+  const trees = plan.items.map(item => treeFor(item, plan.mergeStrategy))
+  return { overwrite: trees.some(tree => tree.mergeStrategy !== "KeepExistingItem"), delete: trees.some(tree => tree.mergeStrategy === "OverrideExistingTree") }
+}
+
 export async function runTransfer(backend: Backend, source: string, destination: string, plan: Plan,
-  approval: { approved: boolean; overwriteApproved: boolean }, report: (progress: Progress) => void, newId: () => string = () => crypto.randomUUID()) {
-  if (!approval.approved || (plan.mergeStrategy === "OverrideExistingItem" && !approval.overwriteApproved)) throw new Error("Approve the changes before starting.")
+  approval: Approval, report: (progress: Progress) => void, newId: () => string = () => crypto.randomUUID()) {
+  const needs = approvalsFor(plan)
+  if (!approval.approved || (needs.overwrite && !approval.overwriteApproved) || (needs.delete && !approval.deleteApproved)) throw new Error("Approve the changes before starting.")
   const problem = planProblem(plan)
   if (problem) throw new Error(problem)
   report({ phase: 1, stage: "Checking both environments again" })
   const blocked = (await reviewPlan(backend, source, destination, plan)).find(row => row.outcome === "conflict")
   if (blocked) throw new Error(`${blocked.path}: ${blocked.message}`)
 
-  const groups = [false, true].map(media => plan.itemPaths.filter(path => isMedia(path) === media)).map((paths, index) => ({ media: index === 1, paths })).filter(group => group.paths.length)
+  const trees = plan.items.map(item => treeFor(item, plan.mergeStrategy))
+  const groups = [false, true].map(media => ({ media, trees: trees.filter(tree => isMedia(tree.itemPath) === media) })).filter(group => group.trees.length)
   let total = 0
   let partial = false
   for (const group of groups) {
@@ -122,7 +172,7 @@ export async function runTransfer(backend: Backend, source: string, destination:
     // Covers creation and packaging too: a failed or timed-out export must not
     // leave the transfer behind on the source either.
     try {
-      await backend.createTransfer(source, transferId, group.paths.map(itemPath => ({ itemPath, scope: plan.scope, mergeStrategy: plan.mergeStrategy })))
+      await backend.createTransfer(source, transferId, group.trees)
       let notFound = 0
       const status = await poll(() => backend.transferStatus(source, transferId), value => {
         if (value.state === "NotFound" && ++notFound > 5) throw new Error("The source lost track of the transfer.")

@@ -19,6 +19,9 @@ export const DEMO_PATHS = {
   missingParentPage: `${HOME}/Blog/Welcome post`,
   newFolder: `${HOME}/Blog`,
   failingImport: `${HOME}/Broken import`,
+  products: `${HOME}/Products`,
+  /** Only in Staging and Production: replacing the Products tree deletes it. */
+  extraInTo: `${HOME}/Products/Old parka`,
   newImage: `${MEDIA}/Images/Hero spring`,
 } as const
 
@@ -47,7 +50,7 @@ function fullTree(): Item[] {
 }
 
 type Packaged = { polls: number; chunkSetId: string; chunks: string[] }
-type Entry = { item: Item; merge: DataTree["mergeStrategy"] }
+type Entry = { item: Item; merge: DataTree["mergeStrategy"]; root: string }
 type File = { entries: Entry[]; consumed: boolean; polls: number; state?: string; error?: string }
 
 let stores = new Map<string, Map<string, Item>>()
@@ -62,7 +65,8 @@ export function resetDemo() {
   // Staging and Production lack the new content, and "Legacy promo" was
   // recreated there by hand, so it has a different ID at the same path.
   const missing = new Set([DEMO_PATHS.newPage, DEMO_PATHS.newFolder, DEMO_PATHS.missingParentPage, DEMO_PATHS.newImage, DEMO_PATHS.failingImport].map(key))
-  const later = items.filter(item => !missing.has(key(item.path))).map(item => key(item.path) === key(DEMO_PATHS.conflictPage) ? { ...item, id: "ffffeeee-dddd-4ccc-bbbb-aaaa99998888" } : item)
+  const later = [...items.filter(item => !missing.has(key(item.path))).map(item => key(item.path) === key(DEMO_PATHS.conflictPage) ? { ...item, id: "ffffeeee-dddd-4ccc-bbbb-aaaa99998888" } : item),
+    { id: "0a1b2c3d-9999-4e5f-8a9b-000000000999", name: "Old parka", path: DEMO_PATHS.extraInTo, template: "Product page" }]
   stores = new Map([["demo-dev", asStore(items)], ["demo-staging", asStore(later)], ["demo-prod", asStore(later.filter(item => !item.path.includes("/Summer launch")))]])
   packaged = new Map(); received = new Map(); files = new Map()
 }
@@ -81,7 +85,7 @@ const wait = (ms: number) => ms ? new Promise(resolve => setTimeout(resolve, ms)
 function within(trees: DataTree[], items: Iterable<Item>): Entry[] {
   return [...items].flatMap(item => {
     const tree = trees.find(t => key(item.path) === key(t.itemPath) || (t.scope === "ItemAndDescendants" && key(item.path).startsWith(key(t.itemPath) + "/")))
-    return tree ? [{ item, merge: tree.mergeStrategy }] : []
+    return tree ? [{ item, merge: tree.mergeStrategy, root: tree.itemPath }] : []
   })
 }
 
@@ -160,7 +164,12 @@ export const demoBackend: Backend = {
         found.state = "Error"; found.error = "Sample failure: field “Body” failed validation on Broken import"
       } else {
         const items = store(env)
-        for (const { item, merge } of found.entries) if (!items.has(key(item.path)) || merge === "OverrideExistingItem") items.set(key(item.path), { ...item })
+        // Replacing a tree first removes destination items under it that the source doesn't have.
+        const sent = new Set(found.entries.map(entry => entry.item.id))
+        for (const root of new Set(found.entries.filter(entry => entry.merge === "OverrideExistingTree").map(entry => key(entry.root)))) {
+          for (const [path, item] of items) if ((path === root || path.startsWith(root + "/")) && !sent.has(item.id)) items.delete(path)
+        }
+        for (const { item, merge } of found.entries) if (!items.has(key(item.path)) || merge !== "KeepExistingItem") items.set(key(item.path), { ...item })
         found.state = "Transferred"
       }
     }

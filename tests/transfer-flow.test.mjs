@@ -1,12 +1,12 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { DEMO_ENVS, DEMO_PATHS, demoBackend, resetDemo, setDemoDelay } from "../src/lib/demo-sitecore.ts"
-import { importState, parentPaths, planProblem, reviewPlan, runTransfer } from "../src/lib/transfer.ts"
+import { approvalsFor, importState, parentPaths, planProblem, reviewPlan, runTransfer, treeFor } from "../src/lib/transfer.ts"
 
 setDemoDelay(0)
 const [DEV, STAGING, PROD] = DEMO_ENVS.map(env => env.id)
-const plan = (itemPaths, scope = "SingleItem", mergeStrategy = "KeepExistingItem") => ({ itemPaths, scope, mergeStrategy })
-const approve = { approved: true, overwriteApproved: true }
+const plan = (paths, scope = "SingleItem", mergeStrategy = "KeepExistingItem") => ({ items: paths.map(path => typeof path === "string" ? { path, scope } : path), mergeStrategy })
+const approve = { approved: true, overwriteApproved: true, deleteApproved: true }
 const run = (p, from = DEV, to = STAGING, approval = approve) => runTransfer(demoBackend, from, to, p, approval, () => {})
 const outcomes = async (p, from = DEV, to = STAGING) => (await reviewPlan(demoBackend, from, to, p)).map(row => row.outcome)
 
@@ -22,7 +22,8 @@ test("plan checks: empty, roots, duplicates, overlap, too many", () => {
   assert.match(planProblem(plan(["/sitecore/content"])), /not the root/)
   assert.match(planProblem(plan(["/sitecore/system/x"])), /not the root/)
   assert.match(planProblem(plan([DEMO_PATHS.newPage, DEMO_PATHS.newPage.toUpperCase()])), /twice/)
-  assert.match(planProblem(plan([DEMO_PATHS.home, DEMO_PATHS.newPage], "ItemAndDescendants")), /inside another/)
+  assert.match(planProblem(plan([DEMO_PATHS.home, DEMO_PATHS.newPage], "ItemAndDescendants")), /already included/)
+  assert.equal(planProblem(plan([{ path: DEMO_PATHS.home, scope: "SingleItem" }, { path: DEMO_PATHS.newPage, scope: "ItemAndDescendants" }])), "", "a parent copied alone doesn't include its children")
   assert.equal(planProblem(plan([DEMO_PATHS.home, DEMO_PATHS.newPage])), "")
   assert.match(planProblem(plan(Array.from({ length: 21 }, (_, i) => `/sitecore/content/x${i}`))), /at most 20/)
 })
@@ -144,6 +145,47 @@ test("run: the source transfer is removed when packaging fails or its status can
 test("run: overwrite of an all-new plan runs once overwrite is approved", async () => {
   const result = await run(plan([DEMO_PATHS.newPage], "SingleItem", "OverrideExistingItem"))
   assert.equal(result.items, 1)
+})
+
+test("options: tree replacement applies to items with sub-items; single items are overwritten", () => {
+  assert.equal(treeFor({ path: "/a", scope: "ItemAndDescendants" }, "OverrideExistingTree").mergeStrategy, "OverrideExistingTree")
+  assert.equal(treeFor({ path: "/a", scope: "SingleItem" }, "OverrideExistingTree").mergeStrategy, "OverrideExistingItem")
+  assert.deepEqual(approvalsFor(plan(["/a"])), { overwrite: false, delete: false })
+  assert.deepEqual(approvalsFor(plan(["/a"], "SingleItem", "OverrideExistingItem")), { overwrite: true, delete: false })
+  assert.deepEqual(approvalsFor(plan(["/a"], "SingleItem", "OverrideExistingTree")), { overwrite: true, delete: false })
+  assert.deepEqual(approvalsFor(plan(["/a"], "ItemAndDescendants", "OverrideExistingTree")), { overwrite: true, delete: true })
+})
+
+test("review: replacing a tree lists exactly what it would delete", async () => {
+  const [row] = await reviewPlan(demoBackend, DEV, STAGING, plan([DEMO_PATHS.products], "ItemAndDescendants", "OverrideExistingTree"))
+  assert.equal(row.outcome, "replace")
+  assert.deepEqual(row.removes, [DEMO_PATHS.extraInTo])
+})
+
+test("run: replacing a tree needs the delete approval, then removes extra items", async () => {
+  const replace = plan([DEMO_PATHS.products], "ItemAndDescendants", "OverrideExistingTree")
+  await assert.rejects(run(replace, DEV, STAGING, { approved: true, overwriteApproved: true, deleteApproved: false }), /Approve/)
+  assert.ok(await demoBackend.item(STAGING, DEMO_PATHS.extraInTo), "nothing deleted before approval")
+  const result = await run(replace)
+  assert.equal(result.items, 3, "Products and its two products")
+  assert.equal(await demoBackend.item(STAGING, DEMO_PATHS.extraInTo), null, "Old parka is gone")
+  assert.ok(await demoBackend.item(STAGING, `${DEMO_PATHS.products}/Trail jacket`))
+})
+
+test("run: overwrite with sub-items replaces existing items but deletes nothing", async () => {
+  await run(plan([DEMO_PATHS.products], "ItemAndDescendants", "OverrideExistingItem"))
+  assert.ok(await demoBackend.item(STAGING, DEMO_PATHS.extraInTo), "Old parka stays")
+})
+
+test("run: per-item scope — a folder alone vs with its sub-items", async () => {
+  const alone = await run(plan([{ path: DEMO_PATHS.newFolder, scope: "SingleItem" }]))
+  assert.equal(alone.items, 1)
+  assert.equal(await demoBackend.item(STAGING, DEMO_PATHS.missingParentPage), null, "the post under it wasn't copied")
+  resetDemo()
+  const mixed = await run(plan([{ path: DEMO_PATHS.newFolder, scope: "ItemAndDescendants" }, { path: DEMO_PATHS.newPage, scope: "SingleItem" }]))
+  assert.equal(mixed.items, 3)
+  assert.ok(await demoBackend.item(STAGING, DEMO_PATHS.missingParentPage))
+  assert.ok(await demoBackend.item(STAGING, DEMO_PATHS.newPage))
 })
 
 test("import states", () => {

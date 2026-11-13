@@ -6,7 +6,7 @@ import { HowToUse } from "@/components/transfer-home"
 export const metadata: Metadata = { title: "About & licences | Content Transfer" }
 
 export default function AboutPage() {
-  return <div className="mx-auto max-w-4xl space-y-6">
+  return <div className="mx-auto max-w-6xl space-y-6">
     <div><Link href="/" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-white"><ArrowLeft className="size-4" aria-hidden="true" />Back</Link>
       <h1 className="page-title mt-2">About Content Transfer</h1>
       <p className="page-description">A free community app for copying content between SitecoreAI environments.</p></div>
