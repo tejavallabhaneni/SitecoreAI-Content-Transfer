@@ -1,41 +1,45 @@
-# SitecoreAI Content Transfer — standalone (pre-release)
+# SitecoreAI Content Transfer — Standalone / Stateless
 
-A Next.js application for reviewing and approving transfers of Sitecore content
-between separately authorized SitecoreAI environments.
+A **standalone Next.js application** with the original SitecoreAI Content
+Transfer dashboard, environment view, content-item browser and transfer wizard.
 
-**Release status:** Not production-certified. The web app has GitHub login,
-PostgreSQL-backed jobs, preflight verification and explicit approval. A
-separate worker implements the native Content Transfer and Item Transfer API
-sequence. Live transfers require deployment credentials and **real staging
-validation**; do not use this project against production content yet.
+It uses SitecoreAI's native APIs. **No application database, user-content
+storage or proprietary history storage is required.** Recent transfer and
+historical import records are read from the destination SitecoreAI instance.
 
-## Features
+> **Pre-release:** Live transfer execution must be explicitly enabled and
+> validated against disposable/non-production SitecoreAI environments. Vercel
+> execution is bounded by function limits; interrupted exports must be reconciled
+> in SitecoreAI before attempting another run. Don't use against customer
+> production content before security and recovery testing.
 
-- GitHub OAuth login, signed session cookies and allowlisted operators.
-- PostgreSQL job drafts, transfer status and progress.
-- Source and target environment configuration using server-only credentials.
-- Real preflight checks against the Authoring GraphQL API, including matching
-  destination parent-item IDs.
-- Reviewed transfers that are queued for an independently hosted worker.
-- Native API worker implementing source export, binary chunk forwarding,
-  .raif file creation and destination master import.
-- Fail-closed simulated demo endpoints in production.
+## What the application does
 
-### Safety restrictions
+- **Jobs dashboard:** original transfer dashboard layout, populated from
+  `GET /sitecore/shell/api/v3/ItemsTransfer/transfers` and `/history`.
+- **Item browser:** source SitecoreAI Authoring GraphQL; select a parent path
+  to list its children, with the original item-list design.
+- **Environments:** source/destination authoring environments configured for
+  this particular deployment and verified against SitecoreAI.
+- **New transfer wizard:** choose an item, scope and merge strategy; run a
+  server-side parent-ID preflight; explicitly confirm before transfer.
+- **Live progress:** one bounded Vercel request streams updates while the
+  Content Transfer API exports and streams chunks to the destination, then
+  the Item Transfer API imports the resulting .raif package.
+- **History detail:** native SitecoreAI import status, errors and historical
+  transitions, never fabricated publishing or AI field mappings.
 
-- OverrideExistingTree is intentionally unavailable.
-- A completed import is **not** published content.
-- Background workers must be enabled separately; no live worker runs in Vercel.
-- Worker failures do not trigger automatic retries; operator reconciliation
-  is required before any restart of an interrupted operation.
-- Cleanup of transferred package resources and full staging integration tests
-  remain release blockers.
+Each deployment is intended for the operator's own SitecoreAI environments.
+The GitHub OAuth allowlist limits who can use the configured automation clients.
+Only an HttpOnly, signed session cookie is used for login; your own app does not
+store content or transfer histories. SitecoreAI itself retains its normal
+history and migration package resources under its own retention rules.
 
-## Local demo
+## Local development
 
 Requires Node.js 22+ and npm.
 
-```bash
+```sh
 git clone https://github.com/tejavallabhaneni/SitecoreAI-Content-Transfer.git
 cd SitecoreAI-Content-Transfer
 npm ci
@@ -43,28 +47,44 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Only local development with `ENABLE_DEMO_MODE=true` shows sample transfer
-jobs. A production runtime never enables fixture-backed transfer APIs.
+Configure `.env.local` with your own GitHub OAuth App and **non-production**
+SitecoreAI automation clients. Do not commit this file.
 
-## Production setup
-
-See [Deployment guide](docs/DEPLOYMENT.md) for GitHub OAuth,
-PostgreSQL schema, server-only Sitecore credentials, worker container,
-preflight workflow and staging test requirements.
-
-```bash
+```sh
 npm run lint
 npx tsc --noEmit
 node --experimental-strip-types --test tests/*.test.mjs
 npm run build
-npm run build:worker
 ```
 
-The `/api/health` endpoint intentionally reports not ready until the
-release gate is cleared.
+## Deploy to Vercel
 
-## Contributions
+See [Vercel setup and staging verification](docs/DEPLOYMENT.md).
+Leave `ENABLE_LIVE_TRANSFERS=false` while initially validating authentication,
+environment connection, live item browsing, native history, and preflight.
+For the first write test, use two disposable authoring environments and a
+small, non-critical item.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
-This private repository has no open-source license yet. Publication requires
-code/asset ownership approval, a history secret scan and enforced reviews.
+### Important limitations
+
+- Vercel Hobby function duration is limited to 300 seconds with Fluid Compute.
+  The transfer route aborts at four minutes rather than assume indefinite
+  execution. A timed-out transfer may still have partial SitecoreAI resources.
+- SitecoreAI's **history** API records destination imports, not every
+  transient export/chunk operation. In-progress source exports may not appear.
+- Native SitecoreAI transfers do not provide field-to-field AI mapping; the old
+  fake mapping data has been removed from the live interface.
+- Native import into `master` is **not publishing** to Experience Edge.
+- Multiple-item batching, resumability, job arbitration, live integration
+  testing, operation cleanup and complete security review remain future work.
+- Do **not** expose the deployment publicly with automation credentials unless
+  authenticated access and organization permissions are verified.
+
+## References
+
+- [Content Transfer API](https://api-docs.sitecore.com/sai/content-transfer-api/section/base-url)
+- [Item Transfer API history](https://api-docs.sitecore.com/sai/item-transfer-api/history)
+- [Authoring GraphQL](https://doc.sitecore.com/sai/en/developers/sitecoreai/content-modeling-and-presentation/sitecore-authoring-and-management-graphql-api/sitecore-authoring-and-management-graphql-api.html)
+
+The repository remains private pending company asset/code clearance, history
+secret review, GitHub rules, and open-source license approval.

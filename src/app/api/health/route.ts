@@ -1,12 +1,21 @@
 import { NextResponse } from "next/server"
-import { demoModeEnabled } from "@/lib/security/demo-mode"
 
 export const dynamic = "force-dynamic"
 
-/** Never report ready until real, authorized, durable transfers are verified. */
 export async function GET() {
-  return NextResponse.json(
-    { status: "not_ready", mode: demoModeEnabled() ? "demo" : "disabled", realTransfersEnabled: false },
-    { status: 503, headers: { "Cache-Control": "no-store" } },
-  )
+  const configured = [
+    "APP_BASE_URL", "SESSION_SECRET", "GITHUB_OAUTH_CLIENT_ID",
+    "GITHUB_OAUTH_CLIENT_SECRET", "ALLOWED_GITHUB_USERS",
+    "SITECORE_SOURCE_HOST", "SITECORE_SOURCE_CLIENT_ID", "SITECORE_SOURCE_CLIENT_SECRET",
+    "SITECORE_DESTINATION_HOST", "SITECORE_DESTINATION_CLIENT_ID", "SITECORE_DESTINATION_CLIENT_SECRET",
+  ].every(key => !!process.env[key]?.trim())
+  return NextResponse.json({
+    status: configured ? "configured" : "setup_required",
+    persistence: "none",
+    historySource: "SitecoreAI Item Transfer API",
+    executionEnabled: process.env.ENABLE_LIVE_TRANSFERS === "true" && configured,
+  }, {
+    status: configured ? 200 : 503,
+    headers: { "Cache-Control": "no-store" },
+  })
 }

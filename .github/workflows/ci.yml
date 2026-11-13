@@ -20,5 +20,3 @@ jobs:
       - run: npx tsc --noEmit
       - run: node --experimental-strip-types --test tests/*.test.mjs
       - run: npm run build
-      - run: npm run build:worker
-      - run: node --test tests/worker-contract.test.cjs

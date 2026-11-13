@@ -1,8 +1,13 @@
-import { redirect } from "next/navigation"
 import { JobsDashboard } from "@/components/jobs-dashboard"
-import { demoModeEnabled } from "@/lib/security/demo-mode"
+import { LoginPanel } from "@/components/login-panel"
+import { currentUser } from "@/lib/auth/session"
 
-export default function HomePage() {
-  if (!demoModeEnabled()) redirect("/transfer")
-  return <JobsDashboard />
+export const dynamic = "force-dynamic"
+
+export default async function HomePage() {
+  let authenticated = false
+  try {
+    authenticated = !!(await currentUser())
+  } catch { /* OAuth app has not yet been configured. */ }
+  return authenticated ? <JobsDashboard /> : <LoginPanel />
 }

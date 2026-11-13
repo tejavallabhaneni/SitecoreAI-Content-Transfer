@@ -1,8 +1,4 @@
-/**
- * Foundation for server-side SitecoreAI client-credential authentication.
- * This module does not perform a content transfer. Never import it into a
- * Client Component or expose access tokens/client secrets in API responses.
- */
+/** Server-side SitecoreAI automation client. Never expose credentials to browser code. */
 export type EnvironmentSide = "source" | "destination"
 
 export interface SitecoreEnvironmentConfig {

@@ -1,27 +1,20 @@
 import { NextResponse } from "next/server"
-import { requireDemoMode } from "@/lib/security/demo-mode"
-
-import { getItems } from "@/lib/store"
+import { requireUser } from "@/lib/auth/session"
+import { readSitecoreConfig } from "@/lib/sitecore/client"
+import { readContentItems } from "@/lib/sitecore/authoring"
 
 export const dynamic = "force-dynamic"
 
 export async function GET(request: Request) {
-  const blocked = requireDemoMode()
-  if (blocked) return blocked
-  const { searchParams } = new URL(request.url)
-  const q = (searchParams.get("q") ?? "").trim().toLowerCase()
-  const template = (searchParams.get("template") ?? "").trim()
-  let items = getItems()
-  if (q) {
-    items = items.filter(
-      (item) =>
-        item.name.toLowerCase().includes(q) ||
-        item.path.toLowerCase().includes(q) ||
-        item.template.toLowerCase().includes(q),
-    )
+  const user = await requireUser(request)
+  if (user instanceof NextResponse) return user
+  const parent = new URL(request.url).searchParams.get("parent") ?? "/sitecore/content"
+  try {
+    const items = await readContentItems(readSitecoreConfig("source"), parent)
+    return NextResponse.json({ items, parent, truncated: items.length >= 100 }, {
+      headers: { "Cache-Control": "no-store" },
+    })
+  } catch {
+    return NextResponse.json({ error: "Unable to read this source SitecoreAI content path" }, { status: 422 })
   }
-  if (template && template !== "all") {
-    items = items.filter((item) => item.template === template)
-  }
-  return NextResponse.json({ items })
 }

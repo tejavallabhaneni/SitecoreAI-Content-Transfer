@@ -1,4 +1,4 @@
-export type JobStatus = "queued" | "running" | "success" | "error"
+export type JobStatus = "queued" | "running" | "success" | "error" | "unknown"
 
 export type EnvironmentKind = "authoring" | "preview" | "live"
 
@@ -62,6 +62,7 @@ export type JobSummary = {
   running: number
   success: number
   error: number
+  unknown?: number
   total: number
 }
 

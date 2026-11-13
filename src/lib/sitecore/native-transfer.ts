@@ -192,33 +192,47 @@ async function untilBlobUploaded(
 
 async function untilImportFinished(
   destination: SitecoreEnvironmentConfig,
-  importId: string,
+  sourceFile: string,
+  startedAt: number,
   options: WorkerOptions,
 ): Promise<void> {
-  assertUuid(importId)
   const { interval, deadline } = bounded(options)
   while (Date.now() < deadline) {
-    const result = await json<{
-      TransferState?: string
-      ValidationErrors?: unknown[]
-    }>(await sitecoreRequest(destination, `${IT}/transfers/${importId}`, {
-      signal: options.signal,
-    }))
-    if (result.TransferState === "Finished") {
-      if (result.ValidationErrors?.length) {
-        throw new Error(`SitecoreAI import returned ${result.ValidationErrors.length} validation errors`)
+    let current: { Id?: string; SourceName?: string; ConsumedDate?: string; TransferState?: string } | undefined
+    for (let page = 1; page <= 10; page++) {
+      const response = await json<{
+        Transfers?: Array<{ Id?: string; SourceName?: string; ConsumedDate?: string; TransferState?: string }>
+        TotalCount?: number
+      }>(await sitecoreRequest(destination, `${IT}/transfers?page=${page}&pageSize=100`, {
+        signal: options.signal,
+      }))
+      if (!Array.isArray(response.Transfers)) throw new Error("SitecoreAI transfer status response was invalid")
+      // RAIF package names contain unique operation IDs. Check its consumption
+      // timestamp too, so a previous execution cannot be mistaken for success.
+      current = response.Transfers.find(entry =>
+        entry.SourceName === sourceFile &&
+        typeof entry.ConsumedDate === "string" &&
+        Date.parse(entry.ConsumedDate) >= startedAt - 60_000)
+      if (current || !response.TotalCount || page * 100 >= response.TotalCount) break
+    }
+    if (current?.TransferState === "Finished") {
+      if (!current.Id || current.Id.length > 220) throw new Error("Destination returned an invalid transfer ID")
+      const detail = await json<{ ValidationErrors?: unknown[] }>(
+        await sitecoreRequest(destination, `${IT}/transfers/${encodeURIComponent(current.Id)}`, {
+          signal: options.signal,
+        }),
+      )
+      if (detail.ValidationErrors?.length) {
+        throw new Error(`SitecoreAI import reported ${detail.ValidationErrors.length} validation errors`)
       }
       return
     }
-    if (["Failed", "Discarded"].includes(result.TransferState ?? "")) {
-      throw new Error(`Destination import ended in state ${result.TransferState}`)
-    }
-    if (!["Queued", "InProgress", "Unknown"].includes(result.TransferState ?? "")) {
-      throw new Error("Unexpected SitecoreAI import state")
+    if (current && ["Failed", "Discarded"].includes(current.TransferState ?? "")) {
+      throw new Error(`Destination import ended in state ${current.TransferState}`)
     }
     await pause(interval, options.signal)
   }
-  throw new Error("Destination import timed out")
+  throw new Error("Destination import timed out; check SitecoreAI history before retrying")
 }
 
 /**
@@ -303,19 +317,24 @@ export async function executeNativeTransfer(
 
   for (const file of files) {
     await untilBlobUploaded(destination, file, options)
+    const importStartedAt = Date.now()
     const consume = await sitecoreRequest(
       destination,
       `${IT}/transfers/databases/master/sources?blobName=${encodeURIComponent(file)}`,
       { method: "POST", signal: options.signal },
     )
-    // Sitecore documents the final location segment as the destination import ID.
+    // Sitecore's 202 Location header points to the source blob, NOT to a UUID
+    // import identifier. Poll by unique source-file name and consumption date.
     const location = consume.headers.get("location")
-    if (!location) throw new Error("Destination did not return an import Location header")
-    const importedId = new URL(location, destination.baseUrl).pathname.split("/").filter(Boolean).at(-1)
-    if (!importedId) throw new Error("Destination Location did not include an import ID")
-    assertUuid(importedId)
+    if (location) {
+      const resource = new URL(location, destination.baseUrl)
+      if (resource.origin !== destination.baseUrl ||
+          resource.pathname.split("/").at(-1) !== file) {
+        throw new Error("Destination returned an unexpected source Location")
+      }
+    }
     await notify("import", file)
-    await untilImportFinished(destination, importedId, options)
+    await untilImportFinished(destination, file, importStartedAt, options)
   }
   await notify("done")
   // Source and .raif cleanup are deliberately left to the durable worker so

@@ -1,21 +1,18 @@
 # Contributing
 
-This project is currently a **development preview**, not a live SitecoreAI transfer application.
+This project is a standalone, stateless SitecoreAI Content Transfer web app.
+Changes must preserve the original dashboard, item browser, environment panel
+and transfer wizard layout unless an explicit design proposal is approved.
 
 ## Local setup
 
-1. Fork the repository and clone your fork.
-2. Use Node.js 22 and run `npm ci`.
-3. Copy `.env.example` to `.env.local` (development-only fixture data).
-4. Run `npm run dev` and visit http://localhost:3000.
-5. Before sending changes, run `npm run lint`, `npx tsc --noEmit`, and `npm run build`.
-6. Open a pull request from your fork. Include a description and test evidence.
+1. Fork and clone your fork.
+2. Install Node.js 22+, then run `npm ci`.
+3. Copy `.env.example` to `.env.local`. Use non-production secrets.
+4. Run `npm run dev` and open http://localhost:3000.
+5. Run `npm run lint`, `npx tsc --noEmit`, unit tests, and `npm run build`.
+6. Submit a pull request to `main` and wait for maintainer review.
 
-Commit to your own fork; do not expect direct push access to the upstream
-repository. The maintainer should configure GitHub rules requiring PR and code
-owner approval before merging.
-
-Never commit client secrets, JWTs, real customer content, private internal URLs
-or code without release authorization. Do not present simulated transfers as real.
-
-Security reports: see [SECURITY.md](SECURITY.md).
+A developer may commit to their **own fork**; only authorized maintainers
+may merge changes into the upstream repository. Never include customer data,
+automation credentials, internal URLs or proprietary code.

@@ -1,112 +1,92 @@
-# Standalone SitecoreAI Content Transfer deployment
+# Vercel deployment — no database
 
-**Important:** The application is not production-certified. It requires real
-staging-environment verification before enabling any live transfer worker.
+## 1. Create a GitHub OAuth app
 
-## Prerequisites
+This app is self-hosted and single-operator/team by default. To prevent anyone
+from using your SitecoreAI automation clients, sign-in is required.
 
-- Node.js 22+ and npm for the Next.js web app.
-- A dedicated Supabase PostgreSQL project. Apply `db/schema.sql` then
-  `db/002_worker.sql` from Supabase SQL Editor.
-- A GitHub OAuth App with callback
-  `https://YOUR_APP_HOST/api/auth/github/callback`.
-- GitHub usernames authorized to run this installation (single operator/team).
-- Separate SitecoreAI Environment Automation clients for the source and target,
-  both with Organization Admin/Owner authorization.
-- A secure container host (Azure Container Apps, AWS ECS/Fargate, or a VM)
-  for the **long-running worker**.
+In GitHub Developer Settings, create an OAuth App. Configure:
+- Homepage URL: `https://YOUR-VERCEL-DOMAIN`
+- Authorization callback: `https://YOUR-VERCEL-DOMAIN/api/auth/github/callback`
 
-## Web application configuration (Vercel or a trusted Node host)
+Set `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`,
+`ALLOWED_GITHUB_USERS` and a random `SESSION_SECRET` (32+ characters)
+as **server-only** secrets in Vercel. Set `APP_BASE_URL` to the exact HTTPS origin.
 
-Add these environment variables as **server-only secrets**:
+## 2. Configure your two non-production SitecoreAI authoring environments
 
-| Setting | Purpose |
-| --- | --- |
-| APP_BASE_URL | HTTPS public origin of your deployment |
-| GITHUB_OAUTH_CLIENT_ID | GitHub OAuth application client ID |
-| GITHUB_OAUTH_CLIENT_SECRET | GitHub OAuth application secret |
-| SESSION_SECRET | Random signing string at least 32 characters |
-| ALLOWED_GITHUB_USERS | Comma-separated GitHub logins allowed to use app |
-| SUPABASE_URL | Dedicated project origin |
-| SUPABASE_SERVICE_ROLE_KEY | Service-role credential; never browser-accessible |
-| SITECORE_SOURCE_HOST | Source CM environment hostname |
-| SITECORE_SOURCE_CLIENT_ID | Source environment automation client ID |
-| SITECORE_SOURCE_CLIENT_SECRET | Source automation client secret |
-| SITECORE_DESTINATION_HOST | Destination CM environment hostname |
-| SITECORE_DESTINATION_CLIENT_ID | Destination environment automation client ID |
-| SITECORE_DESTINATION_CLIENT_SECRET | Destination automation client secret |
+In SitecoreAI Deploy → Credentials → Environment → Create credentials →
+Automation, create separate automation clients for source and destination.
+The account requires appropriate Organization Admin or Organization Owner
+permissions to use Content Transfer and Item Transfer APIs.
 
-The hosting system must restrict access to secrets. Never use `NEXT_PUBLIC_`
-for secrets. The application runs with `ENABLE_DEMO_MODE` disabled in
-production. Vercel can host the UI and API, but is not responsible for
-multi-hour migrations.
+Add to Vercel's server-only environment variables:
 
-Deploy using the framework's standard Next.js build (`npm ci` and
-`npm run build`). Visit `/transfer`, authenticate via GitHub,
-create a draft for a source content path and run preflight.
+- `SITECORE_SOURCE_HOST`
+- `SITECORE_SOURCE_CLIENT_ID`
+- `SITECORE_SOURCE_CLIENT_SECRET`
+- `SITECORE_DESTINATION_HOST`
+- `SITECORE_DESTINATION_CLIENT_ID`
+- `SITECORE_DESTINATION_CLIENT_SECRET`
 
-## Transfer safety workflow
+Use environment hostnames ending in `.sitecorecloud.io` (no protocol/path).
+Never put client credentials into `NEXT_PUBLIC_*`, Git commits, or the chat.
 
-1. The authorized operator creates a job draft (starts in
-   `pending_preflight`; no content moved).
-2. The operator selects **Verify source and destination**. The server
-   queries SitecoreAI Authoring GraphQL for the source item and parent
-   hierarchy in both environments, requiring matching Sitecore item IDs.
-3. The operator reviews the result and explicitly confirms the item path and
-   destination host. Overwrite requires another confirmation.
-4. The job moves to `queued` atomically only after fresh preflight.
-5. The separately deployed worker must have
-   `ENABLE_LIVE_TRANSFERS=true` to claim jobs. It independently rechecks
-   parent IDs before executing the native transfer.
-6. The worker uploads binary chunks, consumes the .raif on the target and
-   polls terminal status. It reports **transfer succeeded**, not **published**.
+**No Supabase, SQL migration, Redis, external worker, or application database
+is required for the bounded single-item workflow.**
 
-### Long-running worker (never on Vercel)
+## 3. Deploy
 
-Build:
+Import the GitHub repository into Vercel using the Next.js preset. Configure
+the above server variables and leave `ENABLE_LIVE_TRANSFERS=false`.
 
-```bash
-docker build -f Dockerfile.worker -t sitecoreai-content-transfer-worker .
-```
+Deploy and open `/`. Sign in via your allowlisted GitHub identity.
 
-Deploy the image to a private container service with the same
-SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and source/destination
-Sitecore credentials, plus `ENABLE_LIVE_TRANSFERS=true` **only after** a
-reviewed staging demonstration. Do not expose the worker through a public port.
+Verify these screens in the **original UI**:
+- **Jobs**: history and active import statuses from destination SitecoreAI.
+- **Items**: navigate the source Authoring GraphQL content tree by path.
+- **Environments**: source/target connection verification.
+- **New transfer**: select a small item, review preflight and parent IDs.
 
-You can alternatively run:
+SitecoreAI import history can be empty on new environments; that isn't a
+database error.
 
-```bash
-npm ci
-npm run build:worker
-ENABLE_LIVE_TRANSFERS=true npm run worker:start
-```
+## 4. Perform a careful staging transfer
 
-Use your hosting platform's secure secret injection rather than command-line
-shell history or committing a .env file.
+Only after read-only features and preflight work with two disposable
+environments, set `ENABLE_LIVE_TRANSFERS=true` in Vercel and redeploy.
 
-## Important recovery constraints
+1. Select a small non-critical source item.
+2. Select **Single item** and **Keep existing items**.
+3. Click **Validate transfer**.
+4. Review the item ID, destination, and matching parent IDs.
+5. Confirm transfer. Keep the page open while Vercel streams progress.
+6. Verify the destination's **master** content in SitecoreAI.
+7. Reload Jobs to see the resulting Item Transfer API history.
+8. Publishing to Experience Edge, if needed, is separate.
 
-The worker's database reservation uses `FOR UPDATE SKIP LOCKED` to avoid
-concurrent execution of the same queued job. **Interrupted jobs are not
-automatically retried**. A running job can become orphaned if a container
-terminates. Reconcile its source export and destination import state using
-Sitecore's APIs before any manual retry to avoid duplicate/destructive imports.
-This is a remaining production-hardening task.
+**Avoid large content trees and media during the first test.** The transfer
+endpoint uses a four-minute abort to stay below Vercel Hobby's standard
+five-minute function limit. Higher plans offer configurable durations but do
+not provide durable crash recovery by themselves.
 
-The current worker does not yet perform cleanup of source transfer operations
-or destination .raif blobs; follow Sitecore's cleanup requirements and
-retention policy. Until cleanup, recovery, tracing, and staging verification
-are completed, treat the application as pre-release.
+## 5. Recovery and release gates
 
-## Deployment validation
+If a browser disconnects, Vercel times out, or SitecoreAI responds with a
+partial failure, **do not blindly retry**. Inspect the source Content Transfer
+operation, destination blob sources, `/transfers`, and `/history`. The
+destination may have already imported content even if the browser never
+received a confirmation.
 
-- Run all CI tests and build both the Next.js app and worker.
-- Verify unauthorized requests are rejected.
-- Verify that failed preflight prevents queueing.
-- Demonstrate a transfer in two disposable SitecoreAI environments.
-- Test parent-ID mismatches, existing items, large media, multilingual items,
-  network interruptions, incomplete imports and worker restart.
-- Verify destination **master** content and its publishing lifecycle.
-- Do not make the repository public until code ownership, historical secrets,
-  a license, and GitHub branch protections are reviewed.
+SitecoreAI's history API records consumed sources, not failed source exports
+that never reached the destination. Do not claim otherwise.
+
+Before customer production use, validate cross-origin rejection, tenant
+isolation (each deployment uses only its configured environments), failure
+recovery, cleanup of RAIF and transfer resources, media/language/version edge
+cases, idempotent retries, and permission management.
+
+Sitecore refs:
+- https://api-docs.sitecore.com/sai/content-transfer-api/section/base-url
+- https://api-docs.sitecore.com/sai/item-transfer-api/history
+- https://vercel.com/docs/functions/configuring-functions/duration
