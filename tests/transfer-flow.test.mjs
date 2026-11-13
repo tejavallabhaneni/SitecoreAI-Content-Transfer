@@ -35,20 +35,17 @@ test("tree: starts at /sitecore with every top-level folder", async () => {
   assert.deepEqual(top.sort(), ["content", "layout", "media library", "system", "templates"])
 })
 
-test("templates: the missing template and the base it inherits are both reported, with paths", async () => {
+test("templates: only the selected item's own template is reported, with its path; inherited ones are skipped", async () => {
   const [row] = await reviewPlan(demoBackend, DEV, STAGING, plan([DEMO_PATHS.missingTemplatePage]))
   assert.equal(row.outcome, "conflict")
-  assert.deepEqual(row.missingTemplates.map(t => [t.name, t.path, t.usedBy, t.inheritedBy ?? null]), [
-    ["Landing page", DEMO_PATHS.landingTemplate, 1, null],
-    ["_Landing base", DEMO_PATHS.landingBase, 0, "Landing page"],
-  ])
+  assert.deepEqual(row.missingTemplates.map(t => [t.name, t.path, t.usedBy]), [["Landing page", DEMO_PATHS.landingTemplate, 1]])
 })
 
 test("templates: added to the same transfer, they're noted and copied first", async () => {
   const withTemplates = plan([DEMO_PATHS.landingTemplate, DEMO_PATHS.landingBase, DEMO_PATHS.missingTemplatePage])
   const rows = await reviewPlan(demoBackend, DEV, STAGING, withTemplates)
   assert.deepEqual(rows.map(row => row.outcome), ["create", "create", "create"])
-  assert.deepEqual(rows[2].templatesFirst, [DEMO_PATHS.landingTemplate, DEMO_PATHS.landingBase].sort())
+  assert.deepEqual(rows[2].templatesFirst, [DEMO_PATHS.landingTemplate])
   const order = []
   const spy = { ...demoBackend, pollMs: 0, createTransfer: (env, id, trees) => { order.push(trees.map(t => t.itemPath.split("/").at(-1))); return demoBackend.createTransfer(env, id, trees) } }
   await runTransfer(spy, DEV, STAGING, withTemplates, approve, () => {})
@@ -56,10 +53,11 @@ test("templates: added to the same transfer, they're noted and copied first", as
   assert.ok(await demoBackend.item(STAGING, DEMO_PATHS.missingTemplatePage))
 })
 
-test("templates: a template present in To still needs its base templates", async () => {
+test("templates: once the item's template is in To, its inherited templates don't block it", async () => {
   await run(plan([DEMO_PATHS.landingTemplate]))
   const [row] = await reviewPlan(demoBackend, DEV, STAGING, plan([DEMO_PATHS.missingTemplatePage]))
-  assert.deepEqual(row.missingTemplates.map(t => t.name), ["_Landing base"])
+  assert.equal(row.missingTemplates, undefined)
+  assert.equal(row.outcome, "create")
 })
 
 test("tree: first level of Content, with children flags", async () => {
@@ -235,10 +233,10 @@ test("review: with sub-items, each sub-item says whether it will be added", asyn
 test("review: a template missing in To blocks the item, including one used only by a sub-item", async () => {
   const [page] = await reviewPlan(demoBackend, DEV, STAGING, plan([DEMO_PATHS.missingTemplatePage]))
   assert.equal(page.outcome, "conflict")
-  assert.match(page.message, /2 templates missing in the destination: Landing page, _Landing base/)
+  assert.match(page.message, /^Template missing in the destination: Landing page$/)
   const [campaigns] = await reviewPlan(demoBackend, DEV, STAGING, plan([`${DEMO_PATHS.home}/Campaigns`], "ItemAndDescendants"))
   assert.equal(campaigns.outcome, "conflict")
-  assert.deepEqual(campaigns.missingTemplates.map(t => [t.name, t.usedBy]), [["Landing page", 1], ["_Landing base", 0]])
+  assert.deepEqual(campaigns.missingTemplates.map(t => [t.name, t.usedBy]), [["Landing page", 1]])
   const [alone] = await reviewPlan(demoBackend, DEV, STAGING, plan([`${DEMO_PATHS.home}/Campaigns`]))
   assert.equal(alone.outcome, "keep", "the folder alone doesn't use that template")
 })
