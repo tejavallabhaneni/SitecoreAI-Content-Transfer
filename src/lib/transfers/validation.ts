@@ -14,6 +14,7 @@ export function parseTransferInput(value: unknown): {
     itemPath.length > 1024 ||
     (!itemPath.startsWith("/sitecore/content/") &&
       !itemPath.startsWith("/sitecore/media library/")) ||
+    ["/sitecore/content/", "/sitecore/media library/"].includes(itemPath) ||
     itemPath.includes("..") ||
     /[\\\u0000-\u001f?#]/.test(itemPath)
   ) throw new Error("Invalid Sitecore item path")

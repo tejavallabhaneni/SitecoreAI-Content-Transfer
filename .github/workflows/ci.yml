@@ -7,7 +7,7 @@ permissions:
   contents: read
 jobs:
   validate:
-    name: Lint, TypeScript and build
+    name: Lint, TypeScript, unit tests and build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,4 +18,5 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npx tsc --noEmit
+      - run: node --experimental-strip-types --test tests/*.test.mjs
       - run: npm run build

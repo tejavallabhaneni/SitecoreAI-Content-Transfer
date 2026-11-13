@@ -4,6 +4,7 @@ import { TransferConsole } from "@/components/transfer-console"
 export const dynamic = "force-dynamic"
 
 export default async function TransferPage() {
-  const session = await currentUser()
-  return <TransferConsole login={session?.login ?? null} />
+  let login: string | null = null
+  try { login = (await currentUser())?.login ?? null } catch { /* missing setup */ }
+  return <TransferConsole login={login} />
 }

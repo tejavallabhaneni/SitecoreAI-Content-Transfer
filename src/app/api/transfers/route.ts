@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/auth/session"
 import { createTransfer, listTransfers } from "@/lib/db/postgrest"
 import { readSitecoreConfig } from "@/lib/sitecore/client"
 import { parseTransferInput } from "@/lib/transfers/validation"
+import { readLimitedJson } from "@/lib/transfers/read-json"
 
 export const dynamic = "force-dynamic"
 
@@ -20,12 +21,8 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const identity = await requireUser(request)
   if (identity instanceof NextResponse) return identity
-  const contentLength = Number(request.headers.get("content-length") ?? "0")
-  if (contentLength > 16_384) {
-    return NextResponse.json({ error: "Request too large" }, { status: 413 })
-  }
   try {
-    const input = parseTransferInput(await request.json())
+    const input = parseTransferInput(await readLimitedJson(request))
     const source = readSitecoreConfig("source")
     const destination = readSitecoreConfig("destination")
     if (source.baseUrl === destination.baseUrl) {
@@ -45,6 +42,9 @@ export async function POST(request: Request) {
       notice: "Draft created. Execution is disabled until destination preflight is implemented and approved.",
     }, { status: 201 })
   } catch (error) {
+    if (error instanceof Error && error.message === "Request too large") {
+      return NextResponse.json({ error: error.message }, { status: 413 })
+    }
     if (error instanceof SyntaxError) {
       return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
     }
