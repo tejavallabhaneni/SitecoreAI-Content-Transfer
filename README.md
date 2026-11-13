@@ -1,11 +1,35 @@
-# SitecoreAI Content Transfer — standalone development preview
+# SitecoreAI Content Transfer — standalone (pre-release)
 
-> **Not production-ready:** This is a standalone Next.js UI demonstration.
-> Content items, environments, field mappings and transfer jobs are simulated.
-> No live SitecoreAI content is copied or published.
+A Next.js application for reviewing and approving transfers of Sitecore content
+between separately authorized SitecoreAI environments.
 
-This repository is separate from any internal Marketplace application.
-It is a foundation for an independently deployable tool.
+**Release status:** Not production-certified. The web app has GitHub login,
+PostgreSQL-backed jobs, preflight verification and explicit approval. A
+separate worker implements the native Content Transfer and Item Transfer API
+sequence. Live transfers require deployment credentials and **real staging
+validation**; do not use this project against production content yet.
+
+## Features
+
+- GitHub OAuth login, signed session cookies and allowlisted operators.
+- PostgreSQL job drafts, transfer status and progress.
+- Source and target environment configuration using server-only credentials.
+- Real preflight checks against the Authoring GraphQL API, including matching
+  destination parent-item IDs.
+- Reviewed transfers that are queued for an independently hosted worker.
+- Native API worker implementing source export, binary chunk forwarding,
+  .raif file creation and destination master import.
+- Fail-closed simulated demo endpoints in production.
+
+### Safety restrictions
+
+- OverrideExistingTree is intentionally unavailable.
+- A completed import is **not** published content.
+- Background workers must be enabled separately; no live worker runs in Vercel.
+- Worker failures do not trigger automatic retries; operator reconciliation
+  is required before any restart of an interrupted operation.
+- Cleanup of transferred package resources and full staging integration tests
+  remain release blockers.
 
 ## Local demo
 
@@ -19,41 +43,28 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Visit http://localhost:3000. The mock APIs are **development-only** and
-require `ENABLE_DEMO_MODE=true` in a non-production Node runtime. A production
-deployment will return HTTP 503 for mock API requests, to prevent false
-claims of successful content transfers.
+Only local development with `ENABLE_DEMO_MODE=true` shows sample transfer
+jobs. A production runtime never enables fixture-backed transfer APIs.
+
+## Production setup
+
+See [Deployment guide](docs/DEPLOYMENT.md) for GitHub OAuth,
+PostgreSQL schema, server-only Sitecore credentials, worker container,
+preflight workflow and staging test requirements.
 
 ```bash
 npm run lint
 npx tsc --noEmit
+node --experimental-strip-types --test tests/*.test.mjs
 npm run build
+npm run build:worker
 ```
 
-## What is implemented
+The `/api/health` endpoint intentionally reports not ready until the
+release gate is cleared.
 
-- Transfer dashboard and job detail views (simulated).
-- Fake environment/item selection and predetermined mapping suggestions.
-- Demo-only API guard and a readiness endpoint at `/api/health`.
-- Server-side SitecoreAI OAuth client and a **worker-only native transfer
-  orchestrator** in `src/lib/sitecore/` implementing the documented export,
-  chunk streaming, .raif creation and destination import steps. This has not
-  been integration-tested or connected to the UI.
+## Contributions
 
-## What remains
-
-A real application needs authentication and authorization, live SitecoreAI
-environment/item discovery, native Content Transfer API and Item Transfer API
-orchestration, persistent job state, background worker, preflight validation,
-safe conflict handling, recoverable errors and staging integration tests.
-See [production readiness](docs/PRODUCTION_READINESS.md).
-
-Sitecore references:
-- [Content Transfer API](https://api-docs.sitecore.com/sai/content-transfer-api/section/base-url)
-- [Item Transfer API](https://api-docs.sitecore.com/sai/item-transfer-api/section/base-url)
-
-## Contributions & licensing
-
-Read [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
-No open-source license has been granted yet. Code/asset ownership must be
-reviewed before the repository is published.
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
+This private repository has no open-source license yet. Publication requires
+code/asset ownership approval, a history secret scan and enforced reviews.
