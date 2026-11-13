@@ -35,6 +35,7 @@ const filters: { id: "all" | JobStatus; label: string }[] = [
   { id: "running", label: "Running" },
   { id: "success", label: "Success" },
   { id: "error", label: "Error" },
+  { id: "unknown", label: "Unknown" },
 ]
 
 export function JobsDashboard() {
