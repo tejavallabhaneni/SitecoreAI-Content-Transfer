@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { backend, choose, createDraft, start, startDemo, useSession } from "@/lib/session"
-import type { Merge, Scope, TreeNode } from "@/lib/transfer"
+import { missingParents, type Merge, type Scope, type TreeNode } from "@/lib/transfer"
 import { cn } from "@/lib/utils"
 
 const howTo = [
@@ -50,7 +50,8 @@ export function Stepper({ current }: { current: 1 | 2 | 3 | 4 }) {
 }
 
 // Kept outside the component so Back from the review page returns to the same step and selection.
-type Picked = { node: TreeNode; scope: Scope }
+/** `auto`: ticked by the app because the item is a parent To doesn't have yet. */
+type Picked = { node: TreeNode; scope: Scope; auto?: boolean }
 type Wizard = { step: 1 | 2 | 3; selected: Map<string, Picked>; merge: Merge; name: string }
 const fresh = (): Wizard => ({ step: 1, selected: new Map(), merge: "KeepExistingItem", name: "" })
 let saved: Wizard = fresh()
@@ -87,14 +88,38 @@ export function TransferHome() {
   useEffect(() => { void start() }, [])
   useEffect(() => { saved = { step, selected, merge, name } }, [step, selected, merge, name])
 
-  const toggle = (node: TreeNode, on: boolean) => setSelected(old => {
-    const next = new Map(old)
-    if (on) next.set(node.path.toLowerCase(), { node, scope: "SingleItem" }); else next.delete(node.path.toLowerCase())
-    return next
-  })
+  const [checking, setChecking] = useState(0)
+  const current = useRef(selected)
+  useEffect(() => { current.current = selected }, [selected])
+  const key = (path: string) => path.toLowerCase()
+  const under = (path: string, parent: string) => key(path).startsWith(key(parent) + "/")
+  // Parents ticked by the app go again once nothing ticked by the user is below them.
+  const prune = (map: Map<string, Picked>) => new Map([...map].filter(([, pick]) => !pick.auto || [...map.values()].some(other => !other.auto && under(other.node.path, pick.node.path))))
+  const toggle = (node: TreeNode, on: boolean) => {
+    setSelected(old => {
+      const next = new Map(old)
+      if (on) next.set(key(node.path), { node, scope: "SingleItem" }); else next.delete(key(node.path))
+      return prune(next)
+    })
+    if (!on || !session.source || !session.destination) return
+    // Parents To doesn't have must be copied too: tick them as well.
+    setChecking(count => count + 1)
+    missingParents(backend(), session.source, session.destination, node.path).then(parents => {
+      const now = current.current
+      if (!now.has(key(node.path))) return
+      const added = parents.filter(parent => !now.has(key(parent.path)) && ![...now.values()].some(pick => pick.scope === "ItemAndDescendants" && under(parent.path, pick.node.path)))
+      if (!added.length) return
+      setSelected(old => {
+        const next = new Map(old)
+        for (const parent of added) if (!next.has(key(parent.path))) next.set(key(parent.path), { node: parent, scope: "SingleItem", auto: true })
+        return next
+      })
+      toast.info(`Also ticked ${added.map(parent => parent.name).join(", ")}: ${added.length === 1 ? "it isn’t" : "they aren’t"} in ${destinationEnv?.name ?? "To"} yet, so ${node.name} needs ${added.length === 1 ? "it" : "them"}.`)
+    }).catch(() => { /* The review checks parents again. */ }).finally(() => setChecking(count => count - 1))
+  }
   const setScope = (path: string, scope: Scope) => setSelected(old => {
     const picked = old.get(path.toLowerCase())
-    return picked ? new Map(old).set(path.toLowerCase(), { ...picked, scope }) : old
+    return picked ? new Map(old).set(path.toLowerCase(), { ...picked, scope, auto: false }) : old
   })
   const setAllScopes = (scope: Scope) => setSelected(old => new Map([...old].map(([key, picked]) => [key, { ...picked, scope: picked.node.hasChildren ? scope : "SingleItem" }])))
   const go = (next: 1 | 2 | 3) => { setError(""); setStep(next); window.scrollTo({ top: 0 }) }
@@ -164,9 +189,10 @@ export function TransferHome() {
 
     {step === 2 && <>
       <div className="surface flex flex-wrap items-center justify-between gap-3 p-3 pl-4">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">{route}<span className="text-sm font-semibold">{selected.size ? `${selected.size} selected` : "Nothing selected yet"}</span></div>
+        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">{route}<span className="text-sm font-semibold">{selected.size ? `${selected.size} selected` : "Nothing selected yet"}</span>
+          {checking > 0 && <span className="flex items-center gap-1.5 text-xs text-muted-foreground" role="status"><LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />Checking parents in {destinationEnv?.name}…</span>}</div>
         <div className="flex gap-2"><Button variant="outline" size="lg" className="gap-2" onClick={() => go(1)}><ArrowLeft className="size-4" aria-hidden="true" />Back</Button>
-          <Button size="lg" className="gap-2" disabled={!selected.size} onClick={() => go(3)}>Next: settings<ArrowRight className="size-4" aria-hidden="true" /></Button></div>
+          <Button size="lg" className="gap-2" disabled={!selected.size || checking > 0} onClick={() => go(3)}>Next: settings<ArrowRight className="size-4" aria-hidden="true" /></Button></div>
       </div>
       <p className="-mt-2 text-sm text-muted-foreground">Tick items in From. For a ticked folder, choose <strong className="text-white">Item</strong> or <strong className="text-white">+ Sub-items</strong>. Badges compare each item with To.</p>
       <div className="grid gap-4 lg:grid-cols-2">
@@ -182,8 +208,8 @@ export function TransferHome() {
         </section>
       </div>
       {selected.size > 0 && <div className="surface p-4"><p className="text-sm font-semibold">Selected</p>
-        <ul className="mt-2 flex flex-wrap gap-2">{[...selected.values()].map(({ node, scope }) => <li key={node.path} className="flex max-w-full items-center gap-1 rounded-full bg-white/15 py-1 pr-1 pl-3 text-xs">
-          <span className="truncate" title={node.path}>{node.name}{scope === "ItemAndDescendants" ? " + sub-items" : ""}</span>
+        <ul className="mt-2 flex flex-wrap gap-2">{[...selected.values()].map(({ node, scope, auto }) => <li key={node.path} className="flex max-w-full items-center gap-1 rounded-full bg-white/15 py-1 pr-1 pl-3 text-xs">
+          <span className="truncate" title={auto ? `${node.path} (ticked for you: not in ${destinationEnv?.name} yet)` : node.path}>{node.name}{scope === "ItemAndDescendants" ? " + sub-items" : ""}{auto && <span className="text-muted-foreground"> · parent, not in To</span>}</span>
           <button type="button" className="rounded-full p-0.5 hover:bg-white/20" aria-label={`Remove ${node.name}`} onClick={() => toggle(node, false)}><X className="size-3.5" aria-hidden="true" /></button></li>)}</ul></div>}
     </>}
 
@@ -193,8 +219,8 @@ export function TransferHome() {
       <fieldset className="grid gap-3">
         <div className="flex flex-wrap items-center justify-between gap-2"><legend className="text-[15px] font-semibold">What to copy ({selected.size})</legend>
           <div className="flex gap-2 text-xs"><Button type="button" variant="outline" size="sm" onClick={() => setAllScopes("SingleItem")}>All: item only</Button><Button type="button" variant="outline" size="sm" onClick={() => setAllScopes("ItemAndDescendants")}>All: with sub-items</Button></div></div>
-        <ul className="divide-y divide-white/10 rounded-lg border">{[...selected.values()].map(({ node, scope }) => <li key={node.path} className="grid gap-2 p-3 sm:grid-cols-[1fr_auto] sm:items-center">
-          <div className="min-w-0"><p className="truncate font-medium">{node.name}</p><p className="truncate font-mono text-xs text-muted-foreground" title={node.path}>{node.path}</p></div>
+        <ul className="divide-y divide-white/10 rounded-lg border">{[...selected.values()].map(({ node, scope, auto }) => <li key={node.path} className="grid gap-2 p-3 sm:grid-cols-[1fr_auto] sm:items-center">
+          <div className="min-w-0"><p className="truncate font-medium">{node.name}{auto && <span className="ml-2 rounded-full bg-sky-400/20 px-2 py-0.5 text-xs font-normal text-sky-100">Parent · not in To yet</span>}</p><p className="truncate font-mono text-xs text-muted-foreground" title={node.path}>{node.path}</p></div>
           <ScopeToggle value={scope} disabled={!node.hasChildren} onChange={value => setScope(node.path, value)} label={node.name} />
         </li>)}</ul>
       </fieldset>

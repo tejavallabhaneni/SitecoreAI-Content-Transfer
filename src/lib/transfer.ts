@@ -114,6 +114,20 @@ export function parentPaths(path: string): string[] {
 }
 
 /**
+ * Parent folders of `path` that To doesn't have yet, top-down, as tree nodes from
+ * From, so ticking a deep item can tick them too. A parent that's in To (even
+ * with a different ID) isn't returned; the review reports that case.
+ */
+export async function missingParents(backend: Backend, source: string, destination: string, path: string): Promise<TreeNode[]> {
+  const parents = parentPaths(path)
+  const found = await Promise.all(parents.map(parent => Promise.all([backend.item(source, parent), backend.item(destination, parent)])))
+  return found.flatMap(([from, to], index) => !from || to ? [] : [{
+    id: from.id, name: parents[index].split("/").at(-1) ?? parents[index], path: from.path || parents[index],
+    template: from.templateName ?? "", ...(from.templateId ? { templateId: from.templateId } : {}), hasChildren: true,
+  }])
+}
+
+/**
  * What would happen to each selected item. Fails closed on a different ID at
  * the same path or a missing parent, the two cases that orphan imported items.
  */

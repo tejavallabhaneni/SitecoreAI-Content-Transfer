@@ -1,7 +1,7 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { DEMO_ENVS, DEMO_PATHS, demoBackend, resetDemo, setDemoDelay } from "../src/lib/demo-sitecore.ts"
-import { approvalsFor, importState, parentPaths, planProblem, reviewPlan, runTransfer, treeFor } from "../src/lib/transfer.ts"
+import { approvalsFor, importState, missingParents, parentPaths, planProblem, reviewPlan, runTransfer, treeFor } from "../src/lib/transfer.ts"
 
 setDemoDelay(0)
 const [DEV, STAGING, PROD] = DEMO_ENVS.map(env => env.id)
@@ -15,6 +15,14 @@ test.beforeEach(() => resetDemo())
 test("parent paths start below the root folder", () => {
   assert.deepEqual(parentPaths("/sitecore/content/A/B/C"), ["/sitecore/content/A", "/sitecore/content/A/B"])
   assert.deepEqual(parentPaths("/sitecore/content/A"), [])
+})
+
+test("missing parents: the parents To lacks are found, top-down, so they can be ticked too", async () => {
+  const parents = await missingParents(demoBackend, DEV, STAGING, DEMO_PATHS.missingParentPage)
+  assert.deepEqual(parents.map(p => [p.path, p.name, p.hasChildren]), [[DEMO_PATHS.newFolder, "Blog", true]])
+  assert.deepEqual(await missingParents(demoBackend, DEV, STAGING, DEMO_PATHS.newPage), [], "parents already in To aren't returned")
+  const rows = await reviewPlan(demoBackend, DEV, STAGING, plan([...parents.map(p => p.path), DEMO_PATHS.missingParentPage]))
+  assert.deepEqual(rows.map(row => row.outcome), ["create", "create"], "ticking them clears the review")
 })
 
 test("plan checks: empty, roots, duplicates, overlap, too many", () => {
