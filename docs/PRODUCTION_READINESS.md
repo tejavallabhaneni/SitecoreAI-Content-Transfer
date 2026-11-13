@@ -9,7 +9,10 @@ moved. The current `src/lib/store.ts` is not a production database.
 As a first security measure, simulated API routes are available only when
 `ENABLE_DEMO_MODE=true` outside production. `GET /api/health` intentionally
 returns HTTP 503. The server-side `src/lib/sitecore/client.ts` supports OAuth
-tokens and restricted API requests but is **not wired into transfer jobs**.
+tokens and restricted API requests but is **not wired into transfer jobs**. A separate
+`src/lib/sitecore/native-transfer.ts` implements the documented API sequence
+as a worker-only foundation. It must not be exposed to users until preflight,
+authorization, durability, idempotency, and real staging validation exist.
 
 ## Blocking work
 

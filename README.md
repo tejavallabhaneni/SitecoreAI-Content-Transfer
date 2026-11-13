@@ -35,8 +35,10 @@ npm run build
 - Transfer dashboard and job detail views (simulated).
 - Fake environment/item selection and predetermined mapping suggestions.
 - Demo-only API guard and a readiness endpoint at `/api/health`.
-- Server-only SitecoreAI automation credential/token helper in
-  `src/lib/sitecore/client.ts` (not yet connected to any job runner).
+- Server-side SitecoreAI OAuth client and a **worker-only native transfer
+  orchestrator** in `src/lib/sitecore/` implementing the documented export,
+  chunk streaming, .raif creation and destination import steps. This has not
+  been integration-tested or connected to the UI.
 
 ## What remains
 

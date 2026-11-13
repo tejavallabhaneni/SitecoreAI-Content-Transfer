@@ -97,7 +97,7 @@ export async function sitecoreRequest(
   }
   const headers = new Headers(init.headers)
   headers.set("Authorization", `Bearer ${await getSitecoreToken(config)}`)
-  headers.set("Accept", "application/json")
+  if (!headers.has("Accept")) headers.set("Accept", "application/json")
   const response = await fetch(url, {
     ...init,
     headers,
