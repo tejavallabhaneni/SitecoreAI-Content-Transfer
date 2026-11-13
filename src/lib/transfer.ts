@@ -45,7 +45,8 @@ export interface Backend {
   blobState(env: string, file: string): Promise<{ state: string; error?: string }>
 }
 
-export const ROOTS = ["/sitecore/content", "/sitecore/media library"]
+/** `/sitecore` and its top-level folders (Content, Templates, Media Library…) can't be copied as a whole. */
+export const isTopLevel = (path: string) => !/^\/sitecore\/[^/]+\/./i.test(path.trim())
 export const isMedia = (path: string) => /^\/sitecore\/media library(\/|$)/i.test(path.trim())
 const normalizeId = (id: string) => id.toLowerCase().replace(/[{}-]/g, "")
 const lower = (path: string) => path.toLowerCase()
@@ -55,7 +56,7 @@ export function planProblem(plan: Plan): string {
   if (!plan.items.length) return "Tick at least one item in the From tree."
   if (plan.items.length > 20) return "Select at most 20 items. Use “with sub-items” instead of ticking each one."
   const paths = plan.items.map(item => lower(item.path))
-  if (paths.some(path => ROOTS.includes(path) || !/^\/sitecore\/(content|media library)\//.test(path))) return "Choose items under Content or Media Library, not the root folders."
+  if (paths.some(isTopLevel)) return "Choose items inside the top-level folders (Content, Templates, Media Library…), not the folders themselves."
   if (new Set(paths).size !== paths.length) return "The same item is selected twice."
   const inside = plan.items.find(item => plan.items.some(parent => parent !== item && parent.scope === "ItemAndDescendants" && lower(item.path).startsWith(lower(parent.path) + "/")))
   if (inside) return `“${inside.path.split("/").at(-1)}” is already included by a selected item with sub-items. Untick it, or copy the parent as a single item.`

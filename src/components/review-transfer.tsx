@@ -20,7 +20,7 @@ const outcomes: Record<ReviewOutcome, { label: string; icon: typeof Plus; badge:
 }
 
 function fixFor(message = "") {
-  if (/Template.*missing in the destination/i.test(message)) return "Sitecore can’t import an item whose template isn’t in To. Copy the template (under /sitecore/templates) to To first, for example with serialization, then check again. Or leave this item out."
+  if (/Template.*missing in the destination/i.test(message)) return "Sitecore can’t import an item whose template isn’t in To. Copy the template first: open templates in the From tree, tick the template (with sub-items if it has some), and transfer it. Then check this item again, or leave it out."
   if (/different Sitecore item ID|different ID/i.test(message)) return "This item was created separately in each environment, so the IDs don’t match. Rename or delete it in To, or sync it with serialization, then check again."
   if (/Missing required parent/i.test(message)) return "A parent folder isn’t in To yet. Select the parent “with sub-items” too, or copy it first."
   if (/not found/i.test(message)) return "The item isn’t in From any more. Leave it out and pick again."

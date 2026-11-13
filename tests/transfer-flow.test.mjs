@@ -19,13 +19,28 @@ test("parent paths start below the root folder", () => {
 
 test("plan checks: empty, roots, duplicates, overlap, too many", () => {
   assert.match(planProblem(plan([])), /Tick at least one/)
-  assert.match(planProblem(plan(["/sitecore/content"])), /not the root/)
-  assert.match(planProblem(plan(["/sitecore/system/x"])), /not the root/)
+  assert.match(planProblem(plan(["/sitecore/content"])), /not the folders themselves/)
+  assert.match(planProblem(plan(["/sitecore/templates"])), /not the folders themselves/)
+  assert.match(planProblem(plan(["/sitecore"])), /not the folders themselves/)
+  assert.equal(planProblem(plan(["/sitecore/templates/Project/X"])), "", "anything below the top-level folders can be copied")
   assert.match(planProblem(plan([DEMO_PATHS.newPage, DEMO_PATHS.newPage.toUpperCase()])), /twice/)
   assert.match(planProblem(plan([DEMO_PATHS.home, DEMO_PATHS.newPage], "ItemAndDescendants")), /already included/)
   assert.equal(planProblem(plan([{ path: DEMO_PATHS.home, scope: "SingleItem" }, { path: DEMO_PATHS.newPage, scope: "ItemAndDescendants" }])), "", "a parent copied alone doesn't include its children")
   assert.equal(planProblem(plan([DEMO_PATHS.home, DEMO_PATHS.newPage])), "")
   assert.match(planProblem(plan(Array.from({ length: 21 }, (_, i) => `/sitecore/content/x${i}`))), /at most 20/)
+})
+
+test("tree: starts at /sitecore with every top-level folder", async () => {
+  const top = (await demoBackend.children(DEV, "/sitecore")).map(node => node.name)
+  assert.deepEqual(top.sort(), ["content", "layout", "media library", "system", "templates"])
+})
+
+test("templates: copy the missing template first, then the item that uses it", async () => {
+  assert.equal((await reviewPlan(demoBackend, DEV, STAGING, plan([DEMO_PATHS.missingTemplatePage])))[0].outcome, "conflict")
+  const [template] = await reviewPlan(demoBackend, DEV, STAGING, plan([DEMO_PATHS.landingTemplate]))
+  assert.equal(template.outcome, "create")
+  await run(plan([DEMO_PATHS.landingTemplate]))
+  assert.equal((await reviewPlan(demoBackend, DEV, STAGING, plan([DEMO_PATHS.missingTemplatePage])))[0].outcome, "create")
 })
 
 test("tree: first level of Content, with children flags", async () => {

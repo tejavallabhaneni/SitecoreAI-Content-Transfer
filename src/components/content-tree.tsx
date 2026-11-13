@@ -9,10 +9,9 @@ import type { Backend, Scope, TreeNode } from "@/lib/transfer"
 type Compare = "new" | "exists" | "differs"
 type Loaded = { nodes: TreeNode[]; compare: Record<string, Compare> } | { error: string }
 
-const ROOT_NODES: TreeNode[] = [
-  { id: "root-content", name: "Content", path: "/sitecore/content", template: "", hasChildren: true },
-  { id: "root-media", name: "Media Library", path: "/sitecore/media library", template: "", hasChildren: true },
-]
+// The whole tree, as Content Editor shows it: /sitecore, its top-level folders
+// (Content, Layout, Media Library, System, Templates…) and everything below.
+const ROOT_NODES: TreeNode[] = [{ id: "root-sitecore", name: "sitecore", path: "/sitecore", template: "", hasChildren: true }]
 const normalize = (id: string) => id.toLowerCase().replace(/[{}-]/g, "")
 const badges: Record<Compare, { label: string; className: string }> = {
   new: { label: "New", className: "bg-emerald-100 text-emerald-800" },
@@ -29,7 +28,7 @@ export function ContentTree({ backend, env, compareTo, selected, onToggle, onSco
   /** Selected items by lower-case path, with whether each goes alone or with its sub-items. */
   selected?: Map<string, Scope>; onToggle?: (node: TreeNode, on: boolean) => void; onScope?: (node: TreeNode, scope: Scope) => void
 }) {
-  const [open, setOpen] = useState<Set<string>>(() => new Set(["/sitecore/content"]))
+  const [open, setOpen] = useState<Set<string>>(() => new Set(["/sitecore", "/sitecore/content"]))
   const [loaded, setLoaded] = useState<Record<string, Loaded>>({})
 
   const load = useCallback(async (path: string) => {
@@ -51,7 +50,7 @@ export function ContentTree({ backend, env, compareTo, selected, onToggle, onSco
   }, [backend, env, compareTo])
 
   // Load the first level once; the parent remounts this tree when environments change.
-  useEffect(() => { void load("/sitecore/content") }, [load])
+  useEffect(() => { void load("/sitecore"); void load("/sitecore/content") }, [load])
 
   function toggleOpen(path: string) {
     setOpen(old => {
@@ -65,6 +64,8 @@ export function ContentTree({ backend, env, compareTo, selected, onToggle, onSco
   function rows(nodes: TreeNode[], depth: number, compare: Record<string, Compare>): React.ReactNode {
     return nodes.map(node => {
       const isRoot = depth === 0
+      // /sitecore and its top-level folders are browsed, not copied as a whole.
+      const selectable = depth >= 2
       const expanded = open.has(node.path)
       const children = loaded[node.path]
       const state = compare[node.path]
@@ -77,9 +78,10 @@ export function ContentTree({ backend, env, compareTo, selected, onToggle, onSco
             ? <button type="button" onClick={() => toggleOpen(node.path)} className="flex size-7 shrink-0 items-center justify-center rounded hover:bg-white/15" aria-label={`${expanded ? "Close" : "Open"} ${node.name}`}>
                 <ChevronRight className={cn("size-4 transition-transform", expanded && "rotate-90")} aria-hidden="true" /></button>
             : <span className="size-7 shrink-0" />}
-          {onToggle && !isRoot && <Checkbox checked={Boolean(selected?.has(node.path.toLowerCase()))} onCheckedChange={on => onToggle(node, Boolean(on))} aria-label={`Select ${node.name}`} />}
+          {onToggle && !selectable && <span className="size-4 shrink-0" aria-hidden="true" />}
+          {onToggle && selectable && <Checkbox checked={Boolean(selected?.has(node.path.toLowerCase()))} onCheckedChange={on => onToggle(node, Boolean(on))} aria-label={`Select ${node.name}`} />}
           <ItemIcon sources={node.icons} fallback={Fallback} thumbnail={media && !node.hasChildren} />
-          <button type="button" className="min-w-0 flex-1 truncate text-left text-[15px]" onClick={() => node.hasChildren ? toggleOpen(node.path) : onToggle && !isRoot && onToggle(node, !selected?.has(node.path.toLowerCase()))} title={node.template ? `${node.path}\nTemplate: ${node.template}` : node.path}>{node.name}</button>
+          <button type="button" className="min-w-0 flex-1 truncate text-left text-[15px]" onClick={() => node.hasChildren ? toggleOpen(node.path) : onToggle && selectable && onToggle(node, !selected?.has(node.path.toLowerCase()))} title={node.template ? `${node.path}\nTemplate: ${node.template}` : node.path}>{node.name}</button>
           {node.template ? <span className="hidden max-w-[11rem] shrink-0 truncate text-xs text-muted-foreground sm:inline" title={`Template: ${node.template}`}>{node.template}</span>
             : !isRoot && <span className="hidden shrink-0 text-xs text-rose-300 sm:inline" title="This item’s template doesn’t exist in this environment">Template missing</span>}
           {state && <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold", badges[state].className)}>{badges[state].label}</span>}
