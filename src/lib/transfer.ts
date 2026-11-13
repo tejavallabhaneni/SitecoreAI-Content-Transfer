@@ -117,19 +117,21 @@ export async function runTransfer(backend: Backend, source: string, destination:
   for (const group of groups) {
     const transferId = newId()
     report({ phase: 1, stage: group.media ? "Packaging media on the source" : "Packaging content on the source" })
-    await backend.createTransfer(source, transferId, group.paths.map(itemPath => ({ itemPath, scope: plan.scope, mergeStrategy: plan.mergeStrategy })))
-    let notFound = 0
-    const status = await poll(() => backend.transferStatus(source, transferId), value => {
-      if (value.state === "NotFound" && ++notFound > 5) throw new Error("The source lost track of the transfer.")
-      if (value.state === "Failed") throw new Error("The source could not package the selected items.")
-      return value.state === "Completed"
-    }, backend.pollMs, "Packaging on the source")
-    const chunks = status.chunkSets.reduce((sum, set) => sum + set.chunkCount, 0)
-    const items = status.chunkSets.reduce((sum, set) => sum + set.totalItemCount, 0)
-    total += items
     const files: string[] = []
-    let copied = 0
+    let items = 0
+    // Covers creation and packaging too: a failed or timed-out export must not
+    // leave the transfer behind on the source either.
     try {
+      await backend.createTransfer(source, transferId, group.paths.map(itemPath => ({ itemPath, scope: plan.scope, mergeStrategy: plan.mergeStrategy })))
+      let notFound = 0
+      const status = await poll(() => backend.transferStatus(source, transferId), value => {
+        if (value.state === "NotFound" && ++notFound > 5) throw new Error("The source lost track of the transfer.")
+        if (value.state === "Failed") throw new Error("The source could not package the selected items.")
+        return value.state === "Completed"
+      }, backend.pollMs, "Packaging on the source")
+      const chunks = status.chunkSets.reduce((sum, set) => sum + set.chunkCount, 0)
+      items = status.chunkSets.reduce((sum, set) => sum + set.totalItemCount, 0)
+      let copied = 0
       for (const set of status.chunkSets) {
         for (let chunk = 0; chunk < set.chunkCount; chunk++) {
           report({ phase: 2, stage: `Copying chunk ${copied + 1} of ${chunks}`, chunk: copied, chunks, items })
@@ -144,6 +146,7 @@ export async function runTransfer(backend: Backend, source: string, destination:
       // Never leave a packaged transfer behind on the source.
       await backend.deleteTransfer(source, transferId).catch(() => undefined)
     }
+    total += items
     for (const file of files) {
       report({ phase: 4, stage: "Importing into the destination’s master database", items })
       await backend.consumeFile(destination, file)
