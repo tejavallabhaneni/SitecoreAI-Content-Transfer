@@ -135,10 +135,18 @@ export async function missingParents(backend: Backend, source: string, destinati
 export async function reviewPlan(backend: Backend, source: string, destination: string, plan: Plan): Promise<ReviewRow[]> {
   if (source === destination) throw new Error("Pick two different environments.")
   const rows: ReviewRow[] = []
+  // Rows share parents (/sitecore/templates, …): look each path up once per environment.
+  const seen = new Map<string, Promise<ItemRef | null>>()
+  const lookup = (env: string, itemPath: string) => {
+    const key = `${env}\n${lower(itemPath)}`
+    let found = seen.get(key)
+    if (!found) { found = backend.item(env, itemPath); seen.set(key, found) }
+    return found
+  }
   for (const selection of plan.items) {
     const { path, scope } = selection
     const tree = treeFor(selection, plan.mergeStrategy)
-    const [from, to] = await Promise.all([backend.item(source, path), backend.item(destination, path)])
+    const [from, to] = await Promise.all([lookup(source, path), lookup(destination, path)])
     if (!from) { rows.push({ path, scope, outcome: "conflict", parents: 0, message: "Source item was not found" }); continue }
     if (to && normalizeId(to.id) !== normalizeId(from.id)) { rows.push({ path, scope, outcome: "conflict", parents: 0, idConflictAt: path, message: "Destination item at the same path has a different Sitecore item ID" }); continue }
     const included = (itemPath: string) => plan.items.some(selected => lower(itemPath) === lower(selected.path) || (selected.scope === "ItemAndDescendants" && lower(itemPath).startsWith(lower(selected.path) + "/")))
@@ -147,7 +155,7 @@ export async function reviewPlan(backend: Backend, source: string, destination: 
     const missingParents: string[] = []
     const parents = ["/sitecore/" + path.split("/")[2], ...parentPaths(path)]
     for (const parent of parents) {
-      const [a, b] = await Promise.all([backend.item(source, parent), backend.item(destination, parent)])
+      const [a, b] = await Promise.all([lookup(source, parent), lookup(destination, parent)])
       if (!a) { missing = `Missing required parent in From: ${parent}`; break }
       // A parent To lacks is fine when this transfer includes it; otherwise it can be added.
       if (!b) { if (!included(parent)) missingParents.push(parent); continue }

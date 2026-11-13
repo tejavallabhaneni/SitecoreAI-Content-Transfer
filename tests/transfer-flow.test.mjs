@@ -1,7 +1,7 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { DEMO_ENVS, DEMO_PATHS, demoBackend, resetDemo, setDemoDelay } from "../src/lib/demo-sitecore.ts"
-import { chunkIsMedia } from "../src/lib/marketplace.ts"
+import { chunkIsMedia, readGraphql } from "../src/lib/marketplace.ts"
 import { approvalsFor, importState, missingParents, parentPaths, planProblem, reviewPlan, runTransfer, treeFor } from "../src/lib/transfer.ts"
 
 setDemoDelay(0)
@@ -354,4 +354,24 @@ test("conflicts name the folder that causes them", async () => {
   }
   const [child] = await reviewPlan(fake, "A", "B", plan(["/sitecore/templates/Feature/Allied/List"]))
   assert.equal(child.idConflictAt, "/sitecore/templates/Feature/Allied")
+})
+
+test("a failed GraphQL request is an error, not a missing item", () => {
+  assert.deepEqual(readGraphql({ data: { item: null } }), { item: null, errors: [] })
+  assert.deepEqual(readGraphql({ data: { data: { item: { itemId: "1" } } } }), { item: { itemId: "1" }, errors: [] })
+  assert.deepEqual(readGraphql({ errors: [{ message: "Bad query" }], data: null }), { item: null, errors: ["Bad query"] })
+  assert.match(readGraphql({ error: {}, response: { status: 429 } }).failure, /HTTP 429/)
+  assert.match(readGraphql({ data: { error: { message: "Gateway timeout" }, response: { status: 504 } } }).failure, /HTTP 504: Gateway timeout/)
+  assert.match(readGraphql({ data: {} }).failure, /no data/)
+  assert.match(readGraphql(undefined).failure, /no data/)
+})
+
+test("review looks up each shared parent once per environment", async () => {
+  resetDemo()
+  const calls = new Map()
+  const counting = { ...demoBackend, item(env, path) { const key = `${env} ${path.toLowerCase()}`; calls.set(key, (calls.get(key) ?? 0) + 1); return demoBackend.item(env, path) } }
+  const parents = await missingParents(demoBackend, DEV, STAGING, DEMO_PATHS.missingParentPage)
+  await reviewPlan(counting, DEV, STAGING, plan([...parents.map(p => p.path), DEMO_PATHS.missingParentPage]))
+  assert.ok(calls.size > 0)
+  for (const [key, count] of calls) assert.equal(count, 1, key)
 })
