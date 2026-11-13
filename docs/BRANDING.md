@@ -1,21 +1,20 @@
-# SitecoreAI branding for Content Transfer
+# Independent Content Transfer branding
 
-The shared header uses the original SitecoreAI wordmark with a separate Content Transfer caption. The logo artwork has not been recoloured or redrawn. The interface uses the Cloud Portal blue and red tokens, observed from its visible page styles: blue 500 `#4A65E8`, blue 600 `#344BC3`, red 500 `#D92739`, and red 600 `#B30426`.
+The app uses an independently drawn document-and-arrow mark with a blue background and red accent. It is shared by the desktop sidebar, mobile header/navigation, browser favicon and touch icon. Sitecore's wordmark and circular mark are not used as this app's identity.
 
-## Current assets
+- `public/brand/content-transfer.svg`: original app mark, drawn in SVG code.
+- `public/brand/content-transfer-512.png`: 512px rendering of that mark.
+- `src/app/favicon.ico`: matching 16, 32, 48 and 256px renderings.
+- `src/components/app-logo.tsx`: mark with Content Transfer and a subordinate plain-text “for SitecoreAI” platform description.
 
-- `public/brand/sitecoreai-logo.svg`: original SitecoreAI wordmark.
-- `public/brand/sitecoreai-mark.svg`: original SitecoreAI mark, used for the browser icon.
-- `public/brand/sitecoreai-mark-512.png`: scaled PNG rendering of the mark for the touch/app icon.
-- `src/app/favicon.ico`: the same mark rendered at 16, 32, 48 and 256px.
-- `src/components/app-logo.tsx`: shared by the desktop sidebar, mobile header and mobile navigation panel.
+The interface has its own composition with blue `#4A65E8`, blue ink `#344BC3`, red `#D92739`, red ink `#B30426`, and teal/green/amber semantic accents. It does not reproduce the Cloud Portal screen or its product iconography. Icons are Lucide SVGs with retained ISC/Feather MIT notices. Inter and Geist Mono are self-hosted with SIL OFL 1.1 notices.
 
-The earlier custom Content Transfer SVG and PNG are retained. The app continues to be named Content Transfer for SitecoreAI; using the requested logo does not represent an authentication configuration change.
+The public About & licences page and footer identify the app as independent and not sponsored or endorsed by Sitecore. Compatibility wording does not confer trademark rights or Sitecore certification.
 
-## Official asset sources
+## Preserved references
 
-- [Sitecore Blok logo library](https://blok.sitecore.com/graphics/logos)
-- [Original SitecoreAI wordmark](https://delivery-sitecore.sitecorecontenthub.cloud/api/public/content/logo-sitecoreai)
-- [Original SitecoreAI mark](https://delivery-sitecore.sitecorecontenthub.cloud/api/public/content/mark-sitecoreai)
+Earlier official Sitecore SVG/PNG/ICO files are preserved in `docs/brand-reference/` in this private repository, outside the public web root. The earlier custom purple mark remains in local release artifacts and Git history. No artwork or customer data was destroyed. Do not copy the archived references back into public assets without confirming applicable permission.
 
-The original SVG files are preserved byte-for-byte. PNG and ICO versions were rendered from the original mark with the existing Next.js ImageResponse renderer.
+## Review basis and limits
+
+Reviewed 12 November 2026: [Sitecore Terms of Use](https://www.sitecore.com/legal/terms-of-use), especially Proprietary Rights, and [Sitecore Trademarks](https://www.sitecore.com/legal/trademarks). The public Blok asset library alone was not treated as permission to brand a third-party standalone app with Sitecore's logo. No written logo permission or partner contract was verified. This is an implementation risk reduction, not legal clearance or a trademark availability search. See [licence review](LICENSE_REVIEW.md).
