@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, ArrowLeftRight, ArrowRight, Check, LoaderCircle, Sparkles, X } from "lucide-react"
 import { ContentTree, ScopeToggle } from "@/components/content-tree"
+import { Troubleshooting } from "@/components/troubleshooting"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -162,6 +163,7 @@ export function TransferHome() {
           <div className="h-[max(24rem,calc(100dvh-24rem))] overflow-auto p-3"><ContentTree key={`d-${session.version}-${session.destination}`} backend={backend()} env={session.destination!} label={`Content tree of ${destinationEnv?.name}`} /></div>
         </section>
       </div>
+      {!session.demo && <Troubleshooting env={session.source!} name={sourceEnv?.name ?? "From"} />}
       {selected.size > 0 && <div className="surface p-4"><p className="text-sm font-semibold">Selected</p>
         <ul className="mt-2 flex flex-wrap gap-2">{[...selected.values()].map(({ node, scope }) => <li key={node.path} className="flex max-w-full items-center gap-1 rounded-full bg-white/15 py-1 pr-1 pl-3 text-xs">
           <span className="truncate" title={node.path}>{node.name}{scope === "ItemAndDescendants" ? " + sub-items" : ""}</span>
