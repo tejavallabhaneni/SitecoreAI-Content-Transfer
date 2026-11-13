@@ -12,7 +12,7 @@
 import {
   type SitecoreEnvironmentConfig,
   sitecoreRequest,
-} from "@/lib/sitecore/client"
+} from "./client"
 
 export type TransferScope = "SingleItem" | "ItemAndDescendants"
 export type MergeStrategy =
@@ -67,13 +67,6 @@ type ExportStatus = {
     ChunkCount?: number
     TotalItemCount?: number
   }[]
-}
-
-type ItemTransferSummary = {
-  Id?: string
-  SourceName?: string
-  DatabaseName?: string
-  TransferState?: "Unknown" | "InProgress" | "Finished" | "Failed" | "Queued" | "Discarded"
 }
 
 function assertUuid(id: string): void {
@@ -199,48 +192,33 @@ async function untilBlobUploaded(
 
 async function untilImportFinished(
   destination: SitecoreEnvironmentConfig,
-  file: string,
+  importId: string,
   options: WorkerOptions,
 ): Promise<void> {
+  assertUuid(importId)
   const { interval, deadline } = bounded(options)
   while (Date.now() < deadline) {
-    let page = 1
-    let found: ItemTransferSummary | undefined
-    while (page <= 20) {
-      const result = await json<{
-        Transfers?: ItemTransferSummary[]
-        TotalCount?: number
-      }>(
-        await sitecoreRequest(destination, `${IT}/transfers?page=${page}&pageSize=100`, {
-          signal: options.signal,
-        }),
-      )
-      found = result.Transfers?.find(
-        (entry) => entry.SourceName === file && entry.DatabaseName === "master",
-      )
-      if (found) break
-      if (!result.TotalCount || page * 100 >= result.TotalCount) break
-      page++
-    }
-    if (found?.TransferState === "Finished") {
-      const details = found.Id
-        ? await json<{ ValidationErrors?: string[] }>(
-            await sitecoreRequest(destination, `${IT}/transfers/${encodeURIComponent(found.Id)}`, {
-              signal: options.signal,
-            }),
-          )
-        : null
-      if (details?.ValidationErrors?.length) {
-        throw new Error(`SitecoreAI import completed with ${details.ValidationErrors.length} validation error(s)`)
+    const result = await json<{
+      TransferState?: string
+      ValidationErrors?: unknown[]
+    }>(await sitecoreRequest(destination, `${IT}/transfers/${importId}`, {
+      signal: options.signal,
+    }))
+    if (result.TransferState === "Finished") {
+      if (result.ValidationErrors?.length) {
+        throw new Error(`SitecoreAI import returned ${result.ValidationErrors.length} validation errors`)
       }
       return
     }
-    if (found && ["Failed", "Discarded"].includes(found.TransferState ?? "")) {
-      throw new Error(`SitecoreAI destination import ended in state ${found.TransferState}`)
+    if (["Failed", "Discarded"].includes(result.TransferState ?? "")) {
+      throw new Error(`Destination import ended in state ${result.TransferState}`)
+    }
+    if (!["Queued", "InProgress", "Unknown"].includes(result.TransferState ?? "")) {
+      throw new Error("Unexpected SitecoreAI import state")
     }
     await pause(interval, options.signal)
   }
-  throw new Error("SitecoreAI import timed out")
+  throw new Error("Destination import timed out")
 }
 
 /**
@@ -296,7 +274,7 @@ export async function executeNativeTransfer(
       const path = `${CT}/${operationId}/chunksets/${setId}/chunks/${chunk}`
       const sourceChunk = await sitecoreRequest(source, path, {
         headers: { Accept: "application/octet-stream" },
-        signal: options.signal,
+        signal: options.signal ?? AbortSignal.timeout(600_000),
       })
       const isMedia = mediaFlag(sourceChunk.headers.get("Content-Disposition"))
       if (!sourceChunk.body) throw new Error("Source SitecoreAI chunk response had no body")
@@ -306,7 +284,7 @@ export async function executeNativeTransfer(
         headers: { "Content-Type": "application/octet-stream", Accept: "*/*" },
         body: sourceChunk.body,
         duplex: "half",
-        signal: options.signal,
+        signal: options.signal ?? AbortSignal.timeout(600_000),
       } as RequestInit & { duplex: "half" })
       completedChunks++
       await notify("stream")
@@ -325,12 +303,19 @@ export async function executeNativeTransfer(
 
   for (const file of files) {
     await untilBlobUploaded(destination, file, options)
-    await sitecoreRequest(destination, `${IT}/transfers/databases/master/sources?blobName=${encodeURIComponent(file)}`, {
-      method: "POST",
-      signal: options.signal,
-    })
+    const consume = await sitecoreRequest(
+      destination,
+      `${IT}/transfers/databases/master/sources?blobName=${encodeURIComponent(file)}`,
+      { method: "POST", signal: options.signal },
+    )
+    // Sitecore documents the final location segment as the destination import ID.
+    const location = consume.headers.get("location")
+    if (!location) throw new Error("Destination did not return an import Location header")
+    const importedId = new URL(location, destination.baseUrl).pathname.split("/").filter(Boolean).at(-1)
+    if (!importedId) throw new Error("Destination Location did not include an import ID")
+    assertUuid(importedId)
     await notify("import", file)
-    await untilImportFinished(destination, file, options)
+    await untilImportFinished(destination, importedId, options)
   }
   await notify("done")
   // Source and .raif cleanup are deliberately left to the durable worker so

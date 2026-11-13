@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "outDir": "dist-worker",
+    "rootDir": ".",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
+    "types": [
+      "node"
+    ],
+    "resolveJsonModule": true
+  },
+  "include": [
+    "scripts/worker.ts",
+    "src/lib/sitecore/*.ts",
+    "src/lib/db/postgrest.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist-worker"
+  ]
+}

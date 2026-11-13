@@ -1,0 +1,15 @@
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY tsconfig.worker.json ./
+COPY scripts ./scripts
+COPY src/lib ./src/lib
+RUN npm run build:worker
+
+FROM node:22-alpine
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=build /app/dist-worker ./dist-worker
+USER node
+CMD ["node", "dist-worker/scripts/worker.js"]
