@@ -33,7 +33,9 @@ export async function POST(request: Request) {
 
     // Never trust the browser's preflight result. Check it again immediately.
     const report = await verifyPreflight(source, destination, { item_path: input.itemPath })
-    if (body.sourceItemId !== report.sourceItem.itemId) {
+    if (typeof body.sourceItemId !== "string" ||
+        body.sourceItemId.replace(/[{}-]/g, "").toLowerCase() !==
+        report.sourceItem.itemId.replace(/[{}-]/g, "").toLowerCase()) {
       return NextResponse.json({ error: "Source item changed. Run preflight again." }, { status: 409 })
     }
 
