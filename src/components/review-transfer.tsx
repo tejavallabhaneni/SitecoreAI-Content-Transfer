@@ -59,7 +59,10 @@ export function ReviewTransfer({ id }: { id: string }) {
 
   const conflicts = review?.filter(row => row.outcome === "conflict") ?? []
   const updates = review?.filter(row => row.outcome === "update").length ?? 0
-  const ready = Boolean(review && !conflicts.length && ackWrite && (!updates || ackOverwrite))
+  // The run requires overwrite approval whenever overwrite is the setting, even
+  // if nothing exists in To today: an item may appear there before it starts.
+  const overwriting = draft?.plan.mergeStrategy === "OverrideExistingItem"
+  const ready = Boolean(review && !conflicts.length && ackWrite && (!overwriting || ackOverwrite))
   const counts = (["create", "update", "keep", "conflict"] as const).map(outcome => ({ outcome, n: review?.filter(row => row.outcome === outcome).length ?? 0 })).filter(entry => entry.n)
 
   async function check() {
@@ -111,7 +114,9 @@ export function ReviewTransfer({ id }: { id: string }) {
     {draft.status === "draft" && review && !conflicts.length && <section className="surface space-y-4 p-5">
       <h2 className="font-semibold">Approve</h2>
       <label className="flex items-start gap-3 text-sm"><Checkbox checked={ackWrite} onCheckedChange={value => setAckWrite(Boolean(value))} className="mt-0.5" /><span>Write these items to the <strong>master</strong> database of {draft.destination.name}. Publishing is a separate step.</span></label>
-      {updates > 0 && <label className="flex items-start gap-3 text-sm"><Checkbox checked={ackOverwrite} onCheckedChange={value => setAckOverwrite(Boolean(value))} className="mt-0.5" /><span>Overwrite <strong>{updates}</strong> existing item{updates === 1 ? "" : "s"} in {draft.destination.name}.</span></label>}
+      {overwriting && <label className="flex items-start gap-3 text-sm"><Checkbox checked={ackOverwrite} onCheckedChange={value => setAckOverwrite(Boolean(value))} className="mt-0.5" /><span>{updates > 0
+        ? <>Overwrite <strong>{updates}</strong> existing item{updates === 1 ? "" : "s"} in {draft.destination.name}.</>
+        : <>Overwrite matching items in {draft.destination.name} if any appear there before the transfer runs.</>}</span></label>}
       <div className="flex justify-end"><Button size="lg" className="gap-2" onClick={() => void run()} disabled={busy || !ready}><Play className="size-4" aria-hidden="true" />Start transfer</Button></div>
     </section>}
 
