@@ -39,7 +39,8 @@ export async function POST(request: Request) {
 
     const encoder = new TextEncoder()
     const stream = new ReadableStream<Uint8Array>({
-      async start(controller) {
+      start(controller) {
+        void (async () => {
         const send = (value: unknown) => {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(value)}\n\n`))
         }
@@ -70,6 +71,7 @@ export async function POST(request: Request) {
         } finally {
           try { controller.close() } catch { /* Stream may already be canceled. */ }
         }
+        })()
       },
     })
     return new Response(stream, {
