@@ -84,7 +84,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Brand />
         <NavLinks />
         <p className="mt-auto text-xs leading-relaxed text-sidebar-foreground/50">
-          Read-only history from SitecoreAI. Your content stays in SitecoreAI.
+          Native SitecoreAI content transfers and history. No app database.
         </p>
       </aside>
 
