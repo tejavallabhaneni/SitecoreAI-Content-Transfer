@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- Node CommonJS test imports compiled worker output */
 const test = require("node:test")
 const assert = require("node:assert/strict")
 const { verifyPreflight } = require("../dist-worker/src/lib/sitecore/preflight.js")
