@@ -78,8 +78,9 @@ export function ContentTree({ backend, env, compareTo, selected, onToggle, onSco
                 <ChevronRight className={cn("size-4 transition-transform", expanded && "rotate-90")} aria-hidden="true" /></button>
             : <span className="size-7 shrink-0" />}
           {onToggle && !isRoot && <Checkbox checked={Boolean(selected?.has(node.path.toLowerCase()))} onCheckedChange={on => onToggle(node, Boolean(on))} aria-label={`Select ${node.name}`} />}
-          <ItemIcon src={node.icon} fallback={Fallback} />
-          <button type="button" className="min-w-0 flex-1 truncate text-left text-[15px]" onClick={() => node.hasChildren ? toggleOpen(node.path) : onToggle && !isRoot && onToggle(node, !selected?.has(node.path.toLowerCase()))} title={node.path}>{node.name}</button>
+          <ItemIcon sources={node.icons} fallback={Fallback} thumbnail={media && !node.hasChildren} />
+          <button type="button" className="min-w-0 flex-1 truncate text-left text-[15px]" onClick={() => node.hasChildren ? toggleOpen(node.path) : onToggle && !isRoot && onToggle(node, !selected?.has(node.path.toLowerCase()))} title={node.template ? `${node.path}\nTemplate: ${node.template}` : node.path}>{node.name}</button>
+          {node.template && <span className="hidden max-w-[11rem] shrink-0 truncate text-xs text-muted-foreground sm:inline" title={`Template: ${node.template}`}>{node.template}</span>}
           {state && <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold", badges[state].className)}>{badges[state].label}</span>}
         </div>
         {onScope && node.hasChildren && selected?.has(node.path.toLowerCase()) && <div className="flex flex-wrap items-center gap-2 pb-1.5 text-xs text-muted-foreground" style={{ paddingLeft: pad + 92 }}>
@@ -97,12 +98,18 @@ export function ContentTree({ backend, env, compareTo, selected, onToggle, onSco
   return <ul role="tree" aria-label={label} className="space-y-0.5">{rows(ROOT_NODES, 0, {})}</ul>
 }
 
-/** The item's own Sitecore icon when the environment serves one, otherwise a matching glyph. */
-function ItemIcon({ src, fallback: Fallback }: { src?: string; fallback: typeof File }) {
-  const [failed, setFailed] = useState(false)
-  if (!src || failed) return <Fallback className="size-5 shrink-0 opacity-85" aria-hidden="true" />
+/**
+ * The item's own Sitecore icon (or, for media, its thumbnail). Each URL that
+ * fails moves on to the next; when none is left, a matching glyph is drawn.
+ */
+function ItemIcon({ sources = [], fallback: Fallback, thumbnail }: { sources?: string[]; fallback: typeof File; thumbnail?: boolean }) {
+  const key = sources.join(" ")
+  const [failures, setFailures] = useState({ key: "", count: 0 })
+  const failed = failures.key === key ? failures.count : 0
+  const src = sources[failed]
+  if (!src) return <Fallback className="size-5 shrink-0 opacity-85" aria-hidden="true" />
   // eslint-disable-next-line @next/next/no-img-element -- icons come from each environment's own host
-  return <img src={src} alt="" width={20} height={20} className="size-5 shrink-0" onError={() => setFailed(true)} />
+  return <img key={src} src={src} alt="" width={20} height={20} loading="lazy" decoding="async" className={cn("size-5 shrink-0", thumbnail ? "rounded-sm bg-white/10 object-cover" : "object-contain")} onError={() => setFailures({ key, count: failed + 1 })} />
 }
 
 /** "Item only" or "+ sub-items" for one selected item. Items without children can only go alone. */

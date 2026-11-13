@@ -145,15 +145,41 @@ function iconOrigin(env: string, sampleId: string): Promise<string> {
   return learning
 }
 
-export function iconUrl(raw: string, origin: string): string | undefined {
+// Icon URLs, as relay learned them:
+// - `/-/icon/…` answers only a browser signed in to that CM, so the CM's static
+//   icon cache (`/temp/iconcache/{path}`) is tried first, then other CMs' caches
+//   (themed icons are the same bitmap everywhere), then `/-/icon/…` itself.
+// - A media item's icon is its own thumbnail, which the API wraps as
+//   `/-/icon/-/media/{id}.ashx?thn=1`; the bare `/-/media/…` form needs no sign-in.
+// - Tree icons are 16×16, the size the cache holds.
+const learnedOrigins = new Set<string>()
+const atTreeSize = (path: string) => path.replace(/\/\d+x\d+\//, "/16x16/")
+function treeIconUrl(url: string) {
+  const media = url.replace(/\/[-~]\/icon\/[-~]\/media\//i, "/-/media/")
+  return media !== url ? media : url.replace(/(\/[-~]\/icon\/[^?#]*?)\/\d+x\d+\//i, "$1/16x16/")
+}
+function resolveIcon(raw: string, origin: string): string | undefined {
   if (!raw) return undefined
-  const sized = (url: string) => url.replace(/\/\d+x\d+\//, "/32x32/")
-  if (/^https?:\/\//i.test(raw)) return sized(raw)
-  if (/^\/[-~]\/(icon|media)\//i.test(raw)) return origin ? sized(origin + raw) : undefined
-  return origin ? `${origin}/-/icon/${sized(raw.replace(/^~?\/?/, ""))}` : undefined
+  if (/^https?:\/\//i.test(raw)) return treeIconUrl(raw)
+  if (/^\/[-~]\/(icon|media)\//i.test(raw)) return origin ? treeIconUrl(origin + raw) : undefined
+  return origin ? `${origin}/-/icon/${atTreeSize(raw.replace(/^~?\/?/, ""))}` : undefined
+}
+function themedIcon(url: string): { origin: string; path: string } | undefined {
+  const match = url.match(/^(https?:\/\/[^/?#]+)(?:\/sitecore\/shell)?\/[-~]\/icon\/([^?#]+?)(?:\.aspx)?(?:[?#].*)?$/i)
+  if (!match || /^[-~]\/media\//i.test(match[2])) return undefined
+  return { origin: match[1], path: atTreeSize(match[2]) }
+}
+/** Every URL worth trying for an item's icon, best first. */
+export function iconSources(raw: string, origin: string): string[] {
+  const primary = resolveIcon(raw, origin)
+  if (!primary) return []
+  const themed = themedIcon(primary)
+  if (!themed) return [primary]
+  const origins = [themed.origin, ...[...learnedOrigins].filter(other => other !== themed.origin)]
+  return [...new Set([...origins.map(host => `${host}/temp/iconcache/${themed.path.toLowerCase()}`), primary])]
 }
 
-async function childItems(env: string, path: string): Promise<RawItem[]> {
+async function childItems(env: string, path: string): Promise<{ items: RawItem[]; fellBack: boolean }> {
   let richer = new Map<string, RawItem>()
   let lastError = ""
   for (let tier = startTier.get(env) ?? 0; tier < TIERS.length; tier++) {
@@ -162,17 +188,41 @@ async function childItems(env: string, path: string): Promise<RawItem[]> {
     const merged = nodes.map(node => ({ ...richer.get(node.itemId), ...node, icon: node.icon ?? richer.get(node.itemId)?.icon, template: node.template ?? richer.get(node.itemId)?.template }))
     if (!errors.length) {
       if (!item) throw new Error("That folder doesn’t exist in this environment.")
-      return merged
+      return { items: merged, fellBack: richer.size > 0 }
     }
     lastError = errors[0]
     const all = errors.join(" ")
     if (brokenTemplate(all)) { richer = new Map([...richer, ...merged.map(node => [node.itemId, node] as const)]); continue }
     if (schemaGap(all)) { startTier.set(env, tier + 1); continue }
-    if (item) return merged
+    if (item) return { items: merged, fellBack: true }
     break
   }
-  if (richer.size) return [...richer.values()]
+  if (richer.size) return { items: [...richer.values()], fellBack: true }
   throw new Error(`SitecoreAI couldn’t read this folder: ${lastError}`)
+}
+
+/**
+ * When a broken item forced a plainer query, ask for each remaining item's icon
+ * and template on its own. In one aliased query a broken item fails only itself.
+ */
+async function recoverDetails(env: string, items: RawItem[]): Promise<RawItem[]> {
+  const tier = startTier.get(env) ?? 0
+  if (tier >= 2) return items
+  const fields = tier === 0 ? "itemId icon template { name }" : "itemId template { name }"
+  const missing = items.filter(item => !item.template?.name || (tier === 0 && !iconText(item.icon)))
+  const found = new Map<string, RawItem>()
+  for (let index = 0; index < missing.length; index += 25) {
+    const chunk = missing.slice(index, index + 25)
+    const query = `query Details { ${chunk.map((item, n) => `i${n}: item(where: { database: "master", itemId: ${JSON.stringify(item.itemId)} }) { ${fields} }`).join(" ")} }`
+    try {
+      const sdkClient = await sdk()
+      const result = await race(sdkClient.mutate("xmc.authoring.graphql" as never, { params: { query: { sitecoreContextId: env }, body: { query, variables: {} } } } as never), CALL_TIMEOUT_MS, "Reading item details")
+      let level = record(result)
+      for (let depth = 0; depth < 5 && level && !("i0" in level); depth++) level = record(level.data)
+      chunk.forEach((_, n) => { const detail = record(level?.[`i${n}`]); if (detail?.itemId) found.set(String(detail.itemId), detail as unknown as RawItem) })
+    } catch { /* details are a nicety; the tree still works without them */ }
+  }
+  return items.map(item => { const detail = found.get(item.itemId); return detail ? { ...item, icon: item.icon ?? detail.icon, template: item.template ?? detail.template } : item })
 }
 
 async function toNodes(env: string, items: RawItem[]): Promise<TreeNode[]> {
@@ -180,16 +230,18 @@ async function toNodes(env: string, items: RawItem[]): Promise<TreeNode[]> {
   const absolute = icons.map(absoluteOrigin).find(Boolean)
   if (absolute && !iconOrigins.has(env)) iconOrigins.set(env, Promise.resolve(absolute))
   const needsHost = icons.some(icon => icon && !/^https?:/i.test(icon))
-  const origin = needsHost ? await iconOrigin(env, items[0].itemId) : absolute ?? ""
+  const origin = needsHost ? await iconOrigin(env, (items.find(item => iconText(item.icon)) ?? items[0]).itemId) : absolute ?? ""
+  if (origin) learnedOrigins.add(origin)
   return items.map((item, index) => ({ id: item.itemId, name: item.name, path: item.path, template: item.template?.name ?? "",
-    hasChildren: Boolean(item.children?.nodes?.length), icon: iconUrl(icons[index], origin) }))
+    hasChildren: Boolean(item.children?.nodes?.length), icons: iconSources(icons[index], origin) }))
 }
 
 export const marketplaceBackend: Backend = {
   pollMs: 2000,
   async children(env, path) {
-    const items = await childItems(env, path)
-    return items.length ? toNodes(env, items) : []
+    const { items, fellBack } = await childItems(env, path)
+    if (!items.length) return []
+    return toNodes(env, fellBack ? await recoverDetails(env, items) : items)
   },
   async item(env, path) {
     const { item, errors } = await graphqlItem(env, `query Item($path: String!) { item(where: { database: "master", path: $path }) { itemId path } }`, { path })
