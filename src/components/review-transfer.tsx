@@ -7,7 +7,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { MERGE_OPTIONS, Stepper, resetWizard } from "@/components/transfer-home"
-import { checkDraft, dropFromDraft, startDraft, useSession, type Draft } from "@/lib/session"
+import { addToDraft, checkDraft, dropFromDraft, startDraft, useSession, type Draft } from "@/lib/session"
 import { approvalsFor, type ReviewOutcome, type ReviewRow, type SubItem, type SubItemState } from "@/lib/transfer"
 import { cn } from "@/lib/utils"
 
@@ -20,7 +20,7 @@ const outcomes: Record<ReviewOutcome, { label: string; icon: typeof Plus; badge:
 }
 
 function fixFor(message = "") {
-  if (/Template.*missing in the destination/i.test(message)) return "Sitecore can’t import an item whose template isn’t in To. Copy the template first: open templates in the From tree, tick the template (with sub-items if it has some), and transfer it. Then check this item again, or leave it out."
+  if (/Template.*missing in the destination/i.test(message)) return "Sitecore can’t import an item whose template, or a template it inherits from, isn’t in To. Add the missing templates to this transfer (they’re copied first), or leave this item out."
   if (/different Sitecore item ID|different ID/i.test(message)) return "This item was created separately in each environment, so the IDs don’t match. Rename or delete it in To, or sync it with serialization, then check again."
   if (/Missing required parent/i.test(message)) return "A parent folder isn’t in To yet. Select the parent “with sub-items” too, or copy it first."
   if (/not found/i.test(message)) return "The item isn’t in From any more. Leave it out and pick again."
@@ -105,6 +105,11 @@ export function ReviewTransfer({ id }: { id: string }) {
     catch (reason) { toast.error(reason instanceof Error ? reason.message : "The check couldn’t run.") }
     finally { setBusy(false) }
   }
+  async function addTemplates(row: ReviewRow) {
+    const paths = (row.missingTemplates ?? []).flatMap(template => template.path ? [template.path] : [])
+    try { addToDraft(id, paths.map(path => ({ path, scope: "SingleItem" as const }))); toast.success(`Added ${paths.length} template${paths.length === 1 ? "" : "s"}. They’ll be copied first.`); await check() }
+    catch (reason) { toast.error(reason instanceof Error ? reason.message : "Couldn’t add the templates.") }
+  }
   function leaveOut() {
     try { dropFromDraft(id, conflicts.map(row => row.path)); setReview(rows => rows?.filter(row => row.outcome !== "conflict") ?? null) }
     catch (reason) { toast.error(reason instanceof Error ? reason.message : "Couldn’t change the plan.") }
@@ -138,9 +143,15 @@ export function ReviewTransfer({ id }: { id: string }) {
           <div className="flex flex-wrap items-center gap-2"><span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold", tone.badge)}><tone.icon className="size-3" aria-hidden="true" />{tone.label}</span>
             <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs">{scopeLabel(row.scope)}</span><span className="min-w-0 break-all font-mono text-xs">{row.path}</span></div>
           {row.outcome === "conflict" ? <div className="mt-2 text-sm"><p className="font-semibold">{row.message}</p>
-              {row.missingTemplates?.length ? <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">{row.missingTemplates.map(template => <li key={template.id}><span className="font-semibold text-white">{template.name}</span> · used by {template.usedBy} item{template.usedBy === 1 ? "" : "s"} · <span className="font-mono">{template.id}</span></li>)}</ul> : null}
+              {row.missingTemplates?.length ? <>
+                <ul className="mt-2 space-y-1 text-xs text-muted-foreground">{row.missingTemplates.map(template => <li key={template.id}>
+                  <span className="font-semibold text-white">{template.name}</span> · {template.inheritedBy ? <>inherited by <strong className="text-white">{template.inheritedBy}</strong></> : <>used by {template.usedBy} item{template.usedBy === 1 ? "" : "s"}</>}
+                  {template.path && <span className="block break-all font-mono">{template.path}</span>}</li>)}</ul>
+                {row.missingTemplates.some(template => template.path) && <Button size="sm" className="mt-3" onClick={() => void addTemplates(row)} disabled={busy}>Add the missing template{row.missingTemplates.length === 1 ? "" : "s"} to this transfer</Button>}
+              </> : null}
               <p className="mt-1 text-muted-foreground">{fixFor(row.message)}</p></div>
             : <p className="mt-1.5 text-sm text-muted-foreground">{tone.explain}</p>}
+          {row.templatesFirst?.length ? <p className="mt-2 text-xs text-emerald-300">Uses template{row.templatesFirst.length === 1 ? "" : "s"} that To doesn’t have yet; {row.templatesFirst.length === 1 ? "it’s" : "they’re"} in this transfer and will be copied first: {row.templatesFirst.map(path => path.split("/").at(-1)).join(", ")}.</p> : null}
           {row.outcome !== "conflict" && row.subItems && <SubItems items={row.subItems} truncated={row.subItemsTruncated} merge={draft.plan.mergeStrategy} />}
           {row.outcome === "replace" && <div className="mt-2 text-sm">{row.removes?.length
             ? <><p className="font-semibold text-rose-300">Deletes {row.removes.length}{row.removesTruncated ? "+" : ""} item{row.removes.length === 1 && !row.removesTruncated ? " in To that isn’t" : "s in To that aren’t"} in From:</p>

@@ -79,6 +79,17 @@ export function dropFromDraft(id: string, paths: string[]) {
   update(id, { plan: { ...draft.plan, items } })
 }
 
+/** Adds items (e.g. missing templates) to a transfer that hasn't started. They go first. */
+export function addToDraft(id: string, items: Plan["items"]) {
+  const draft = state.drafts.get(id)
+  if (!draft || draft.status !== "draft") throw new Error("Only a transfer that hasn’t started can be changed.")
+  const have = new Set(draft.plan.items.map(item => item.path.toLowerCase()))
+  const plan = { ...draft.plan, items: [...items.filter(item => !have.has(item.path.toLowerCase())), ...draft.plan.items] }
+  const problem = planProblem(plan)
+  if (problem) throw new Error(problem)
+  update(id, { plan })
+}
+
 export async function checkDraft(id: string): Promise<ReviewRow[]> {
   const draft = state.drafts.get(id)
   if (!draft) throw new Error("This transfer is no longer in this tab.")
