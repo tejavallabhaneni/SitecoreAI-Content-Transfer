@@ -26,11 +26,11 @@ const nav = [
   { href: "/environments", label: "Environments", icon: Server },
 ]
 
-function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
+function NavLinks({ onNavigate, demoMode }: { onNavigate?: () => void; demoMode: boolean }) {
   const pathname = usePathname()
   return (
     <nav className="flex flex-col gap-1">
-      {nav.map((item) => {
+      {(demoMode ? nav : [{ href: "/transfer", label: "Transfer workspace", icon: LayoutDashboard }]).map((item) => {
         const active =
           item.href === "/"
             ? pathname === "/"
@@ -75,16 +75,16 @@ function Brand() {
   )
 }
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({ children, demoMode }: { children: React.ReactNode; demoMode: boolean }) {
   const [open, setOpen] = useState(false)
 
   return (
     <div className="flex min-h-full flex-1">
       <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col gap-6 border-r border-sidebar-border bg-sidebar p-4 md:flex">
         <Brand />
-        <NavLinks />
+        <NavLinks demoMode={demoMode} />
         <p className="mt-auto text-xs leading-relaxed text-sidebar-foreground/50">
-          Source → target transfers with AI-assisted field mapping. Demo data only.
+          {demoMode ? "Demo data only — no SitecoreAI transfer occurs." : "Authenticated transfer drafts only — execution disabled pending preflight."}
         </p>
       </aside>
 
@@ -109,7 +109,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </SheetTitle>
             </SheetHeader>
             <div className="px-2 pb-4">
-              <NavLinks onNavigate={() => setOpen(false)} />
+              <NavLinks demoMode={demoMode} onNavigate={() => setOpen(false)} />
             </div>
           </SheetContent>
         </Sheet>
