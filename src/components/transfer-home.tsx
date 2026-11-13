@@ -1,9 +1,9 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, ArrowLeftRight, ArrowRight, Check, LoaderCircle, Sparkles, X } from "lucide-react"
-import { ContentTree, ScopeToggle } from "@/components/content-tree"
+import { ContentTree, ScopeToggle, type TreeController } from "@/components/content-tree"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -73,6 +73,7 @@ export function TransferHome() {
   const [merge, setMerge] = useState(saved.merge)
   const [name, setName] = useState(saved.name)
   const [error, setError] = useState("")
+  const toTree = useRef<TreeController>(null)
 
   useEffect(() => { void start() }, [])
   useEffect(() => { saved = { step, selected, merge, name } }, [step, selected, merge, name])
@@ -155,11 +156,12 @@ export function TransferHome() {
         <section className="surface flex min-w-0 flex-col" aria-labelledby="from-tree">
           <div className="flex min-h-14 items-center justify-between gap-3 border-b px-5 py-3"><h2 id="from-tree" className="truncate text-lg font-semibold">From: {sourceEnv?.name}</h2><span className="shrink-0 text-xs text-muted-foreground">Tick to copy</span></div>
           <div className="h-[max(24rem,calc(100dvh-24rem))] overflow-auto p-3"><ContentTree key={`s-${session.source}-${session.destination}`} backend={backend()} env={session.source!} compareTo={session.destination} label={`Content tree of ${sourceEnv?.name}`}
-            selected={new Map([...selected].map(([key, picked]) => [key, picked.scope]))} onToggle={toggle} onScope={(node, scope) => setScope(node.path, scope)} /></div>
+            selected={new Map([...selected].map(([key, picked]) => [key, picked.scope]))} onToggle={toggle} onScope={(node, scope) => setScope(node.path, scope)}
+            onExpandChange={(path, isOpen) => toTree.current?.follow(path, isOpen)} /></div>
         </section>
         <section className="surface flex min-w-0 flex-col" aria-labelledby="to-tree">
           <div className="flex min-h-14 items-center justify-between gap-3 border-b px-5 py-3"><h2 id="to-tree" className="truncate text-lg font-semibold">To: {destinationEnv?.name}</h2><span className="shrink-0 text-xs text-muted-foreground">What’s there now</span></div>
-          <div className="h-[max(24rem,calc(100dvh-24rem))] overflow-auto p-3"><ContentTree key={`d-${session.version}-${session.destination}`} backend={backend()} env={session.destination!} label={`Content tree of ${destinationEnv?.name}`} /></div>
+          <div className="h-[max(24rem,calc(100dvh-24rem))] overflow-auto p-3"><ContentTree key={`d-${session.version}-${session.destination}`} backend={backend()} env={session.destination!} label={`Content tree of ${destinationEnv?.name}`} controllerRef={toTree} /></div>
         </section>
       </div>
       {selected.size > 0 && <div className="surface p-4"><p className="text-sm font-semibold">Selected</p>

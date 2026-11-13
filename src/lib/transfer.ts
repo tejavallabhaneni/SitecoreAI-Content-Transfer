@@ -145,8 +145,11 @@ export async function reviewPlan(backend: Backend, source: string, destination: 
     const templates = [...used.values()]
     for (let index = 0; index < templates.length; index += 8) {
       const chunk = templates.slice(index, index + 8)
-      const exists = await Promise.all(chunk.map(template => backend.templateExists(destination, template.id)))
-      chunk.forEach((template, n) => { if (!exists[n]) missingTemplates.push(template) })
+      // A template counts as missing only when the same lookup finds it in From.
+      // If From can't find it either, the lookup can't answer for that template,
+      // so it isn't reported (no false alarms).
+      const found = await Promise.all(chunk.map(async template => (await backend.templateExists(destination, template.id)) || !(await backend.templateExists(source, template.id))))
+      chunk.forEach((template, n) => { if (!found[n]) missingTemplates.push(template) })
     }
     if (missingTemplates.length) {
       const names = missingTemplates.map(t => t.name)

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useImperativeHandle, useRef, useState } from "react"
 import { ChevronRight, File, Folder, FolderOpen, Image as ImageIcon, LoaderCircle } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
 import { cn } from "@/lib/utils"
@@ -23,13 +23,20 @@ const badges: Record<Compare, { label: string; className: string }> = {
  * One environment's content tree. Children load when a folder opens. With a
  * `compareTo` environment, each item is marked New, Exists or ID differs.
  */
-export function ContentTree({ backend, env, compareTo, selected, onToggle, onScope, label }: {
+/** Lets one tree open or close a folder in another, so From and To stay in step. */
+export type TreeController = { follow(path: string, open: boolean): void }
+
+export function ContentTree({ backend, env, compareTo, selected, onToggle, onScope, onExpandChange, controllerRef, label }: {
   backend: Backend; env: string; compareTo?: string; label: string
   /** Selected items by lower-case path, with whether each goes alone or with its sub-items. */
   selected?: Map<string, Scope>; onToggle?: (node: TreeNode, on: boolean) => void; onScope?: (node: TreeNode, scope: Scope) => void
+  /** Called when the person opens or closes a folder in this tree. */
+  onExpandChange?: (path: string, open: boolean) => void
+  controllerRef?: React.Ref<TreeController>
 }) {
   const [open, setOpen] = useState<Set<string>>(() => new Set(["/sitecore", "/sitecore/content"]))
   const [loaded, setLoaded] = useState<Record<string, Loaded>>({})
+  const requested = useRef(new Set<string>())
 
   const load = useCallback(async (path: string) => {
     try {
@@ -50,16 +57,27 @@ export function ContentTree({ backend, env, compareTo, selected, onToggle, onSco
   }, [backend, env, compareTo])
 
   // Load the first level once; the parent remounts this tree when environments change.
-  useEffect(() => { void load("/sitecore"); void load("/sitecore/content") }, [load])
+  useEffect(() => {
+    for (const path of ["/sitecore", "/sitecore/content"]) { requested.current.add(path); void load(path) }
+  }, [load])
 
-  function toggleOpen(path: string) {
+  function setFolder(path: string, isOpen: boolean) {
+    if (isOpen && !requested.current.has(path)) { requested.current.add(path); void load(path) }
     setOpen(old => {
       const next = new Set(old)
-      if (next.has(path)) next.delete(path)
-      else { next.add(path); if (!loaded[path]) void load(path) }
+      if (isOpen) next.add(path); else next.delete(path)
       return next
     })
   }
+
+  function toggleOpen(path: string) {
+    const isOpen = !open.has(path)
+    setFolder(path, isOpen)
+    onExpandChange?.(path, isOpen)
+  }
+
+  // The other tree follows: a folder that doesn't exist here just stays out of view.
+  useImperativeHandle(controllerRef, () => ({ follow: setFolder }))
 
   function rows(nodes: TreeNode[], depth: number, compare: Record<string, Compare>): React.ReactNode {
     return nodes.map(node => {
@@ -91,7 +109,7 @@ export function ContentTree({ backend, env, compareTo, selected, onToggle, onSco
         {expanded && <ul role="group">{!children
           ? <li className="flex items-center gap-2 py-2 text-sm text-muted-foreground" style={{ paddingLeft: pad + 56 }}><LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />Loading…</li>
           : "error" in children ? <li role="alert" className="my-1 mr-2 rounded-md bg-[#4a0a1c]/80 px-3 py-2 text-sm text-rose-300" style={{ marginLeft: pad + 36 }}>{children.error}{" "}
-              <button type="button" className="font-semibold underline underline-offset-4" onClick={() => { setLoaded(old => { const next = { ...old }; delete next[node.path]; return next }); void load(node.path) }}>Try again</button></li>
+              <button type="button" className="font-semibold underline underline-offset-4" onClick={() => { setLoaded(old => { const next = { ...old }; delete next[node.path]; return next }); requested.current.add(node.path); void load(node.path) }}>Try again</button></li>
           : children.nodes.length === 0 ? <li className="py-2 text-sm text-muted-foreground" style={{ paddingLeft: pad + 56 }}>Empty</li>
           : rows(children.nodes, depth + 1, children.compare)}</ul>}
       </li>
