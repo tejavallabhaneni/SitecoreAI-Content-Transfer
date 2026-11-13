@@ -6,8 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
-    "worker:start": "node dist-worker/scripts/worker.js"
+    "lint": "eslint"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
