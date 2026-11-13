@@ -15,7 +15,7 @@ export async function GET(request: Request) {
     const { jobs, pageSize, totalStatuses, totalHistory } =
       await getSitecoreJobs(readSitecoreConfig("destination"), page)
     const statusParam = params.get("status")
-    const filtered = ["queued", "running", "success", "error"].includes(statusParam ?? "")
+    const filtered = ["queued", "running", "success", "error", "unknown"].includes(statusParam ?? "")
       ? jobs.filter(j => j.status === statusParam) : jobs
     return NextResponse.json({
       jobs: filtered,
@@ -25,6 +25,7 @@ export async function GET(request: Request) {
         running: jobs.filter(j => j.status === "running").length,
         success: jobs.filter(j => j.status === "success").length,
         error: jobs.filter(j => j.status === "error").length,
+        unknown: jobs.filter(j => j.status === "unknown").length,
         total: jobs.length,
       },
     }, { headers: { "Cache-Control": "no-store" } })
