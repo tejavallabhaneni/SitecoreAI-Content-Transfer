@@ -39,6 +39,8 @@ async function sdk(): Promise<ClientSDK> {
   return starting
 }
 
+const RETRY_MS = 800
+
 function race<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
   return Promise.race([promise, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`${what}: no response within ${Math.round(ms / 1000)}s`)), ms) })])
@@ -118,16 +120,35 @@ export async function installedEnvironments(): Promise<Env[]> {
 /** One Authoring GraphQL `item(...)` query. Returns what came back, errors and all. */
 async function graphqlItem(env: string, query: string, variables: Record<string, unknown>): Promise<{ item: unknown; errors: string[] }> {
   const sdkClient = await sdk()
-  const result = await race(sdkClient.mutate("xmc.authoring.graphql" as never, { params: { query: { sitecoreContextId: env }, body: { query, variables } } } as never), CALL_TIMEOUT_MS, "Reading content")
+  let failure = ""
+  // A failed request (throttled, a server error, no body) is retried once and then
+  // reported as an error, never as "not found": a missing answer isn't a missing item.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt) await new Promise(resolve => setTimeout(resolve, RETRY_MS))
+    const result = await race(sdkClient.mutate("xmc.authoring.graphql" as never, { params: { query: { sitecoreContextId: env }, body: { query, variables } } } as never), CALL_TIMEOUT_MS, "Reading content")
+    const answer = readGraphql(result)
+    if (!("failure" in answer)) return answer
+    failure = answer.failure
+  }
+  return { item: null, errors: [failure] }
+}
+
+/** The `item` and GraphQL errors in an SDK result, or why the request itself failed. */
+export function readGraphql(result: unknown): { item: unknown; errors: string[] } | { failure: string } {
   let level = record(result)
   let errors: unknown[] = []
-  let item: unknown = undefined
   for (let depth = 0; depth < 5 && level; depth++) {
     if (Array.isArray(level.errors) && level.errors.length) errors = level.errors
-    if ("item" in level) { item = level.item; break }
+    if ("item" in level) return { item: level.item ?? null, errors: errors.map(error => text(record(error)?.message, error) || "GraphQL error") }
+    const status = record(level.response)?.status
+    if (level.error || (typeof status === "number" && status >= 400)) {
+      const said = level.error ? detail(level.error) : ""
+      return { failure: `Authoring GraphQL ${typeof status === "number" ? `answered HTTP ${status}` : "failed"}${said ? `: ${said}` : ""}` }
+    }
     level = record(level.data)
   }
-  return { item: item ?? null, errors: errors.map(error => text(record(error)?.message, error) || "GraphQL error") }
+  if (errors.length) return { item: null, errors: errors.map(error => text(record(error)?.message, error) || "GraphQL error") }
+  return { failure: "Authoring GraphQL sent back no data" }
 }
 
 async function raw(kind: "query" | "mutate", operation: string, env: string, params: Record<string, unknown>, timeout = CALL_TIMEOUT_MS): Promise<unknown> {
