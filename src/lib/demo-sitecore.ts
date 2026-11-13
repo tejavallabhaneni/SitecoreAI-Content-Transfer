@@ -26,7 +26,7 @@ export const DEMO_PATHS = {
   missingTemplatePage: `${HOME}/Campaigns/Black Friday`,
   /** The template Black Friday needs; only Development has it, so copy it first. */
   landingTemplate: `${TEMPLATES}/Landing page`,
-  /** "Landing page" inherits this, and only Development has it too. */
+  /** "Landing page" inherits this; only Development has it. Inherited templates aren't checked. */
   landingBase: `${TEMPLATES}/_Landing base`,
   products: `${HOME}/Products`,
   /** Only in Staging and Production: replacing the Products tree deletes it. */

@@ -68,8 +68,8 @@ export type ReviewOutcome = "create" | "update" | "replace" | "keep" | "conflict
 /** For an item copied with sub-items: whether each sub-item is new in To, already there (same ID), or a different item at the same path. */
 export type SubItemState = "new" | "exists" | "differs"
 export type SubItem = { path: string; state: SubItemState }
-/** A template To lacks: used directly by `usedBy` items, or inherited by another missing template. */
-export type MissingTemplate = { id: string; name: string; path?: string; usedBy: number; inheritedBy?: string }
+/** A template To lacks, used by `usedBy` of the selected items. */
+export type MissingTemplate = { id: string; name: string; path?: string; usedBy: number }
 export type ReviewRow = {
   path: string; scope: Scope; outcome: ReviewOutcome; parents: number; message?: string
   missingTemplates?: MissingTemplate[]
@@ -159,27 +159,18 @@ export async function reviewPlan(backend: Backend, source: string, destination: 
       entry.usedBy++
       used.set(key, entry)
     }
-    // Missing templates, including inherited base templates. A template counts as
-    // missing only when the same lookup finds it in From; if From can't find it
-    // either, the lookup can't answer for it and it isn't reported.
+    // Missing templates: only the templates the selected item (and its selected
+    // sub-items) are built on. Inherited base templates aren't checked. A template
+    // counts as missing only when the same lookup finds it in From; if From can't
+    // find it either, the lookup can't answer for it and it isn't reported.
     const missingTemplates: MissingTemplate[] = []
     const templatesFirst: string[] = []
-    const seen = new Set<string>()
-    const visit = async (id: string, name: string, usedBy: number, inheritedBy?: string): Promise<void> => {
-      const key = normalizeId(id)
-      if (seen.has(key)) return
-      seen.add(key)
-      const toInfo = await backend.templateInfo(destination, id)
-      if (toInfo) {
-        // Present in To, but its own base templates must be there too.
-        for (const base of toInfo.baseIds) await visit(base, "", 0, toInfo.name || name)
-        return
-      }
+    const visit = async (id: string, name: string, usedBy: number): Promise<void> => {
+      if (await backend.templateInfo(destination, id)) return
       const fromInfo = await backend.templateInfo(source, id)
       if (!fromInfo) return
       if (included(fromInfo.path)) templatesFirst.push(fromInfo.path)
-      else missingTemplates.push({ id, name: fromInfo.name || name, path: fromInfo.path, usedBy, ...(inheritedBy ? { inheritedBy } : {}) })
-      for (const base of fromInfo.baseIds) await visit(base, "", 0, fromInfo.name || name)
+      else missingTemplates.push({ id, name: fromInfo.name || name, path: fromInfo.path, usedBy })
     }
     const templates = [...used.values()]
     for (let index = 0; index < templates.length; index += 8) {

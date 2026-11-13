@@ -20,7 +20,7 @@ const outcomes: Record<ReviewOutcome, { label: string; icon: typeof Plus; badge:
 }
 
 function fixFor(message = "") {
-  if (/Template.*missing in the destination/i.test(message)) return "Sitecore can’t import an item whose template, or a template it inherits from, isn’t in To. Add the missing templates to this transfer (they’re copied first), or leave this item out."
+  if (/Template.*missing in the destination/i.test(message)) return "Sitecore can’t import an item whose template isn’t in To. Add the missing templates to this transfer (they’re copied first), or leave this item out."
   if (/Parent item has a different ID/i.test(message)) return "That folder exists in both environments but was created separately, so its ID differs. Items keep their parent’s ID, so they can’t be placed under To’s folder without becoming orphaned. See the summary above."
   if (/different Sitecore item ID|different ID/i.test(message)) return "This item exists in both environments but was created separately, so the IDs don’t match. Sync it with serialization, or delete it in To if it’s unused, then check again."
   if (/Missing required parent in To/i.test(message)) return "Add the missing parent folders to this transfer (they’re copied before the item), or leave this item out."
@@ -153,7 +153,7 @@ export function ReviewTransfer({ id }: { id: string }) {
       </div>}
       {allTemplates.length > 0 && <div className="rounded-lg border bg-white/5 p-4 text-sm">
         <p className="font-semibold">{allTemplates.length} template{allTemplates.length === 1 ? " is" : "s are"} missing in {draft.destination.name}</p>
-        <ul className="mt-2 space-y-0.5">{allTemplates.map(template => <li key={template.path} className="text-xs text-muted-foreground"><span className="font-semibold text-white">{template.name}</span>{template.inheritedBy ? ` · inherited by ${template.inheritedBy}` : ""} · <span className="break-all font-mono">{template.path}</span></li>)}</ul>
+        <ul className="mt-2 space-y-0.5">{allTemplates.map(template => <li key={template.path} className="text-xs text-muted-foreground"><span className="font-semibold text-white">{template.name}</span> · <span className="break-all font-mono">{template.path}</span></li>)}</ul>
         <Button size="sm" className="mt-3" disabled={busy} onClick={() => void addTemplates(allTemplates.map(template => template.path!))}>Add all missing templates</Button>
         <p className="mt-2 text-xs text-muted-foreground">Templates are copied first, in their own step.</p>
       </div>}
@@ -179,7 +179,7 @@ export function ReviewTransfer({ id }: { id: string }) {
           {row.outcome === "conflict" ? <div className="mt-2 text-sm"><p className="font-semibold">{row.message}</p>
               {row.missingTemplates?.length ? <>
                 <ul className="mt-2 space-y-1 text-xs text-muted-foreground">{row.missingTemplates.map(template => <li key={template.id}>
-                  <span className="font-semibold text-white">{template.name}</span> · {template.inheritedBy ? <>inherited by <strong className="text-white">{template.inheritedBy}</strong></> : <>used by {template.usedBy} item{template.usedBy === 1 ? "" : "s"}</>}
+                  <span className="font-semibold text-white">{template.name}</span> · <>used by {template.usedBy} item{template.usedBy === 1 ? "" : "s"}</>
                   {template.path && <span className="block break-all font-mono">{template.path}</span>}</li>)}</ul>
               </> : null}
               {row.missingParents?.length ? <>
