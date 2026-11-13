@@ -1,49 +1,59 @@
-# SitecoreAI Content Transfer
+# SitecoreAI Content Transfer — standalone development preview
 
-Web app for transferring Sitecore-style content items between XM Cloud environments (source → target) with AI-assisted field mapping.
+> **Not production-ready:** This is a standalone Next.js UI demonstration.
+> Content items, environments, field mappings and transfer jobs are simulated.
+> No live SitecoreAI content is copied or published.
 
-This is a **working demo** added because the Origin repository `sitecoreai-content-transfer` (`https://origin.cursor.com/americaneagle-com/sitecoreai-content-transfer.git`) could not be cloned from the Cloud Agent session (HTTP 403 — the agent token is not scoped to that Origin repo). It is **not** a byte-for-byte clone of the internal Origin project.
+This repository is separate from any internal Marketplace application.
+It is a foundation for an independently deployable tool.
 
-## What you can do
+## Local demo
 
-- Browse transfer jobs on the dashboard (queued, running, success, error)
-- Pick source and target environments
-- Select content items and create a job
-- Review, accept, or reject SitecoreAI field mappings
-- Run a transfer and watch status/progress update
-
-The catalog, environments, and job runner are simulated in-process (JSON store under `data/runtime.json`). No live Sitecore credentials are required.
-
-## Run locally
-
-Requires Node.js 20+.
+Requires Node.js 22+ and npm.
 
 ```bash
-npm install
+git clone https://github.com/tejavallabhaneni/SitecoreAI-Content-Transfer.git
+cd SitecoreAI-Content-Transfer
+npm ci
+cp .env.example .env.local
 npm run dev
 ```
 
-Then open [http://localhost:3000](http://localhost:3000).
-
-To bind all interfaces on a custom port:
-
-```bash
-npx next dev --hostname 0.0.0.0 --port 3847
-```
+Visit http://localhost:3000. The mock APIs are **development-only** and
+require `ENABLE_DEMO_MODE=true` in a non-production Node runtime. A production
+deployment will return HTTP 503 for mock API requests, to prevent false
+claims of successful content transfers.
 
 ```bash
+npm run lint
+npx tsc --noEmit
 npm run build
-npm start
 ```
 
-## Production
+## What is implemented
 
-- GitHub: https://github.com/tejavallabhaneni/SitecoreAI-Content-Transfer
-- Vercel production: https://sitecoreai-content-transfer-seven.vercel.app
-- Vercel alias: https://sitecoreai-content-transfer-app.vercel.app
+- Transfer dashboard and job detail views (simulated).
+- Fake environment/item selection and predetermined mapping suggestions.
+- Demo-only API guard and a readiness endpoint at `/api/health`.
+- Server-side SitecoreAI OAuth client and a **worker-only native transfer
+  orchestrator** in `src/lib/sitecore/` implementing the documented export,
+  chunk streaming, .raif creation and destination import steps. This has not
+  been integration-tested or connected to the UI.
 
-The Vercel project `sitecoreai-content-transfer` is linked to this GitHub repository. The hostname `sitecoreai-content-transfer.vercel.app` is already assigned to another Vercel team (`Americaneaglecom`) and cannot be claimed here.
+## What remains
 
-## Stack
+A real application needs authentication and authorization, live SitecoreAI
+environment/item discovery, native Content Transfer API and Item Transfer API
+orchestration, persistent job state, background worker, preflight validation,
+safe conflict handling, recoverable errors and staging integration tests.
+See [production readiness](docs/PRODUCTION_READINESS.md).
 
-Next.js App Router, TypeScript, Tailwind CSS, and shadcn/ui.
+Sitecore references:
+- [Content Transfer API](https://api-docs.sitecore.com/sai/content-transfer-api/section/base-url)
+- [Item Transfer API](https://api-docs.sitecore.com/sai/item-transfer-api/section/base-url)
+
+## Contributions & licensing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
+No open-source license has been granted yet. Code/asset ownership must be
+reviewed before the repository is published.

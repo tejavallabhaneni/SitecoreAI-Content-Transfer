@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { requireDemoMode } from "@/lib/security/demo-mode"
 
 import { createJob, getJobs, hydrateJob, summarizeJobs } from "@/lib/store"
 import type { JobStatus } from "@/lib/types"
@@ -8,6 +9,8 @@ export const dynamic = "force-dynamic"
 const statuses: JobStatus[] = ["queued", "running", "success", "error"]
 
 export async function GET(request: Request) {
+  const blocked = requireDemoMode()
+  if (blocked) return blocked
   const { searchParams } = new URL(request.url)
   const statusParam = searchParams.get("status")
   const status =
@@ -19,6 +22,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const blocked = requireDemoMode()
+  if (blocked) return blocked
   try {
     const body = (await request.json()) as {
       name?: string
