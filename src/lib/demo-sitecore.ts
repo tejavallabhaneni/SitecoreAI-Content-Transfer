@@ -5,6 +5,9 @@
 import type { Backend, DataTree, Env, TreeNode } from "./transfer"
 
 type Item = { id: string; name: string; path: string; template: string }
+/** Sample template IDs. "Landing page" exists only in Development, so copying Black Friday is blocked. */
+const templateId = (name: string) => `7e3f0000-0000-4000-8000-${[...name].reduce((sum, char) => sum * 31 + char.charCodeAt(0), 7).toString(16).slice(-12).padStart(12, "0")}`
+let templates = new Map<string, Set<string>>()
 
 const SITE = "/sitecore/content/Harbor and Pine"
 const HOME = `${SITE}/Website/Home`
@@ -19,6 +22,8 @@ export const DEMO_PATHS = {
   missingParentPage: `${HOME}/Blog/Welcome post`,
   newFolder: `${HOME}/Blog`,
   failingImport: `${HOME}/Broken import`,
+  /** Uses the "Landing page" template, which only Development has. */
+  missingTemplatePage: `${HOME}/Campaigns/Black Friday`,
   products: `${HOME}/Products`,
   /** Only in Staging and Production: replacing the Products tree deletes it. */
   extraInTo: `${HOME}/Products/Old parka`,
@@ -40,7 +45,7 @@ function fullTree(): Item[] {
   return [
     item("/sitecore/content", "Main section"), item(SITE, "Headless Tenant"), item(`${SITE}/Website`, "Headless Site"),
     item(HOME, "Page"), item(`${HOME}/About us`, "Page"), item(`${HOME}/Campaigns`, "Folder"),
-    item(DEMO_PATHS.newPage, "Campaign page"), item(DEMO_PATHS.existingPage, "Campaign page"),
+    item(DEMO_PATHS.newPage, "Campaign page"), item(DEMO_PATHS.existingPage, "Campaign page"), item(DEMO_PATHS.missingTemplatePage, "Landing page"),
     item(`${HOME}/Products`, "Page"), item(`${HOME}/Products/Trail jacket`, "Product page"), item(`${HOME}/Products/Harbor boots`, "Product page"),
     item(DEMO_PATHS.conflictPage, "Page"), item(DEMO_PATHS.newFolder, "Folder"), item(DEMO_PATHS.missingParentPage, "Article page"),
     item(DEMO_PATHS.failingImport, "Page"), item(`${SITE}/Website/Data`, "Folder"), item(`${SITE}/Website/Data/Navigation`, "Navigation"),
@@ -64,11 +69,14 @@ export function resetDemo() {
   const asStore = (list: Item[]) => new Map(list.map(item => [key(item.path), { ...item }]))
   // Staging and Production lack the new content, and "Legacy promo" was
   // recreated there by hand, so it has a different ID at the same path.
-  const missing = new Set([DEMO_PATHS.newPage, DEMO_PATHS.newFolder, DEMO_PATHS.missingParentPage, DEMO_PATHS.newImage, DEMO_PATHS.failingImport].map(key))
+  const missing = new Set([DEMO_PATHS.newPage, DEMO_PATHS.newFolder, DEMO_PATHS.missingParentPage, DEMO_PATHS.newImage, DEMO_PATHS.failingImport, DEMO_PATHS.missingTemplatePage].map(key))
   const later = [...items.filter(item => !missing.has(key(item.path))).map(item => key(item.path) === key(DEMO_PATHS.conflictPage) ? { ...item, id: "ffffeeee-dddd-4ccc-bbbb-aaaa99998888" } : item),
     { id: "0a1b2c3d-9999-4e5f-8a9b-000000000999", name: "Old parka", path: DEMO_PATHS.extraInTo, template: "Product page" }]
   stores = new Map([["demo-dev", asStore(items)], ["demo-staging", asStore(later)], ["demo-prod", asStore(later.filter(item => !item.path.includes("/Summer launch")))]])
   packaged = new Map(); received = new Map(); files = new Map()
+  const all = new Set(items.map(item => templateId(item.template)))
+  const withoutLanding = new Set([...all].filter(id => id !== templateId("Landing page")))
+  templates = new Map([["demo-dev", all], ["demo-staging", withoutLanding], ["demo-prod", withoutLanding]])
 }
 resetDemo()
 
@@ -99,12 +107,16 @@ export const demoBackend: Backend = {
     const depth = parent.path.split("/").length
     const all = [...items.values()]
     return all.filter(item => key(item.path).startsWith(key(parent.path) + "/") && item.path.split("/").length === depth + 1)
-      .map((item): TreeNode => ({ id: item.id, name: item.name, path: item.path, template: item.template, hasChildren: all.some(other => key(other.path).startsWith(key(item.path) + "/")) }))
+      .map((item): TreeNode => ({ id: item.id, name: item.name, path: item.path, template: item.template, templateId: templateId(item.template), hasChildren: all.some(other => key(other.path).startsWith(key(item.path) + "/")) }))
   },
   async item(env, path) {
     await wait(delay / 4)
     const found = store(env).get(key(path))
-    return found ? { id: found.id, path: found.path } : null
+    return found ? { id: found.id, path: found.path, templateId: templateId(found.template), templateName: found.template } : null
+  },
+  async templateExists(env, id) {
+    await wait(delay / 4)
+    return templates.get(env)?.has(id) ?? false
   },
   async createTransfer(env, transferId, trees) {
     await wait(delay)

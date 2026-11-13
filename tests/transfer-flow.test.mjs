@@ -188,6 +188,38 @@ test("run: per-item scope — a folder alone vs with its sub-items", async () =>
   assert.ok(await demoBackend.item(STAGING, DEMO_PATHS.newPage))
 })
 
+test("review: with sub-items, each sub-item says whether it will be added", async () => {
+  const [blog] = await reviewPlan(demoBackend, DEV, STAGING, plan([DEMO_PATHS.newFolder], "ItemAndDescendants"))
+  assert.equal(blog.outcome, "create")
+  assert.deepEqual(blog.subItems, [{ path: DEMO_PATHS.missingParentPage, state: "new" }])
+  const [products] = await reviewPlan(demoBackend, DEV, STAGING, plan([DEMO_PATHS.products], "ItemAndDescendants"))
+  assert.deepEqual(products.subItems.map(item => item.state), ["exists", "exists"])
+  const [single] = await reviewPlan(demoBackend, DEV, STAGING, plan([DEMO_PATHS.products]))
+  assert.equal(single.subItems, undefined, "an item copied alone lists no sub-items")
+})
+
+test("review: a template missing in To blocks the item, including one used only by a sub-item", async () => {
+  const [page] = await reviewPlan(demoBackend, DEV, STAGING, plan([DEMO_PATHS.missingTemplatePage]))
+  assert.equal(page.outcome, "conflict")
+  assert.match(page.message, /Template missing in the destination: Landing page/)
+  const [campaigns] = await reviewPlan(demoBackend, DEV, STAGING, plan([`${DEMO_PATHS.home}/Campaigns`], "ItemAndDescendants"))
+  assert.equal(campaigns.outcome, "conflict")
+  assert.deepEqual(campaigns.missingTemplates.map(t => [t.name, t.usedBy]), [["Landing page", 1]])
+  const [alone] = await reviewPlan(demoBackend, DEV, STAGING, plan([`${DEMO_PATHS.home}/Campaigns`]))
+  assert.equal(alone.outcome, "keep", "the folder alone doesn't use that template")
+})
+
+test("review: a different item at a sub-item's path is reported", async () => {
+  const child = (env, id) => ({ id, name: "Teaser", path: "/sitecore/content/S/P/Teaser", template: "Page", templateId: "t1", hasChildren: false })
+  const fake = {
+    pollMs: 0, templateExists: async () => true,
+    item: async (env, path) => ({ id: `id-${path}`, path, templateId: "t1", templateName: "Page" }),
+    children: async (env, path) => path === "/sitecore/content/S/P" ? [child(env, env === "A" ? "from-id" : "other-id")] : [],
+  }
+  const [row] = await reviewPlan(fake, "A", "B", plan(["/sitecore/content/S/P"], "ItemAndDescendants"))
+  assert.deepEqual(row.subItems, [{ path: "/sitecore/content/S/P/Teaser", state: "differs" }])
+})
+
 test("import states", () => {
   assert.equal(importState({ state: "Processing" }), "running")
   assert.equal(importState({ state: "Transferred" }), "done")
