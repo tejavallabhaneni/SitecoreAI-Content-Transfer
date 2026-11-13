@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { MERGE_OPTIONS, Stepper, resetWizard, restoreWizard } from "@/components/transfer-home"
 import { addToDraft, checkDraft, dropFromDraft, startDraft, useSession, type Draft } from "@/lib/session"
-import { approvalsFor, type ReviewOutcome, type ReviewRow, type SubItem, type SubItemState } from "@/lib/transfer"
+import { approvalsFor, knownFix, type ReviewOutcome, type ReviewRow, type SubItem, type SubItemState } from "@/lib/transfer"
 import { cn } from "@/lib/utils"
 
 const outcomes: Record<ReviewOutcome, { label: string; icon: typeof Plus; badge: string; explain: string }> = {
@@ -221,7 +221,8 @@ export function ReviewTransfer({ id }: { id: string }) {
       {draft.status === "done" && <div className="rounded-lg bg-emerald-100 p-4 text-sm text-emerald-800"><p className="font-semibold">{draft.error ? "Imported with errors" : "Import complete"}</p>
         <p className="mt-1">{draft.error ?? `${draft.items ?? 0} item${draft.items === 1 ? " was" : "s were"} sent to the authoring database (master) of ${draft.destination.name}.${draft.plan.mergeStrategy === "KeepExistingItem" ? " Items that were already there were kept as they were." : ""} Publish when you’re ready.`}</p></div>}
       {draft.status === "failed" && <div role="alert" className="rounded-lg bg-rose-100 p-4 text-sm text-rose-800"><p className="font-semibold">What went wrong</p><p className="mt-1 break-words">{/[.!?]$/.test(draft.error?.trim() ?? "") ? draft.error : `${draft.error ?? "The transfer stopped"}.`}</p>
-        <p className="mt-2">{draft.wrote ? <>Some items may already be in {draft.destination.name}. Check it before trying again.</> : <>Nothing was imported into {draft.destination.name}, so it’s safe to try again.</>}</p></div>}
+        <p className="mt-2">{draft.wrote ? <>Some items may already be in {draft.destination.name}. Check it before trying again.</> : <>Nothing was imported into {draft.destination.name}, so it’s safe to try again.</>}</p>
+        <FixSteps fix={knownFix(draft.error, draft.destination.name)} /></div>}
       {draft.status !== "running" && <Link href="/" onClick={resetWizard} className="inline-flex items-center gap-2 text-sm font-semibold underline-offset-4 hover:underline">Start another transfer<ArrowRight className="size-4" aria-hidden="true" /></Link>}
     </section>}
 
@@ -230,4 +231,16 @@ export function ReviewTransfer({ id }: { id: string }) {
       <p className="mt-3">If it already exists in To: {mergeLabel}</p>
     </details>
   </div>
+}
+
+function FixSteps({ fix }: { fix: ReturnType<typeof knownFix> }) {
+  if (!fix) return null
+  return (
+    <div className="mt-3 border-t border-rose-300 pt-3">
+      <p className="font-semibold">How to fix this</p>
+      <p className="mt-1">{fix.summary}</p>
+      <ol className="mt-2 list-decimal space-y-1 pl-5">{fix.steps.map(step => <li key={step} className="break-words">{step}</li>)}</ol>
+      {fix.link && <a href={fix.link.href} target="_blank" rel="noreferrer" className="mt-2 inline-block font-medium underline underline-offset-2">{fix.link.label}</a>}
+    </div>
+  )
 }

@@ -238,6 +238,21 @@ async function poll<T>(read: () => Promise<T>, done: (value: T) => boolean, ever
 }
 
 /** Maps a destination file state to running / done / failed. */
+/** Steps for a failure the app recognizes but can't fix itself, or null. */
+export type KnownFix = { summary: string; steps: string[]; link?: { href: string; label: string } }
+export function knownFix(error: string | undefined, destination: string): KnownFix | null {
+  if (/azure blob storage connection string/i.test(error ?? "")) return {
+    summary: `${destination} couldn’t store the transfer. Its Content Transfer storage isn’t set up, which is a SitecoreAI configuration problem, not something wrong with your items.`,
+    steps: [
+      "Open a Sitecore Support case. Quote the error above (with its correlation ID) and every environment it happens in. If it happens everywhere, mention that SitecoreAI base image 1.12.2 moved this storage connection string (TransferredItems.AzureBlobStorage).",
+      `In SitecoreAI Deploy, check ${destination}’s environment variables. If SITECORE_XmCloud_dot_TransferFilesConnectionString is set but empty or out of date, fix or remove it, then redeploy.`,
+      "Try again when Sitecore confirms it’s fixed.",
+    ],
+    link: { href: "https://doc.sitecore.com/changelog/sitecoreai/27102026/sitecoreai-base-image-release-1.12.2", label: "SitecoreAI base image 1.12.2 release notes" },
+  }
+  return null
+}
+
 export function importState(state: { state: string; error?: string }): "running" | "done" | "partial" | "failed" {
   if (["Transferred", "Consumed", "Completed", "OK"].includes(state.state)) return "done"
   if (state.state === "TransferredWithErrors") return "partial"

@@ -22,6 +22,8 @@ export const DEMO_PATHS = {
   missingParentPage: `${HOME}/Blog/Welcome post`,
   newFolder: `${HOME}/Blog`,
   failingImport: `${HOME}/Broken import`,
+  /** Saving its chunk fails the way an environment without Content Transfer storage does. */
+  storageError: `${HOME}/Storage error`,
   /** Uses the "Landing page" template, which only Development has. */
   missingTemplatePage: `${HOME}/Campaigns/Black Friday`,
   /** The template Black Friday needs; only Development has it, so copy it first. */
@@ -58,7 +60,7 @@ function fullTree(): Item[] {
     item(DEMO_PATHS.newPage, "Campaign page"), item(DEMO_PATHS.existingPage, "Campaign page"), item(DEMO_PATHS.missingTemplatePage, "Landing page"),
     item(`${HOME}/Products`, "Page"), item(`${HOME}/Products/Trail jacket`, "Product page"), item(`${HOME}/Products/Harbor boots`, "Product page"),
     item(DEMO_PATHS.conflictPage, "Page"), item(DEMO_PATHS.newFolder, "Folder"), item(DEMO_PATHS.missingParentPage, "Article page"),
-    item(DEMO_PATHS.failingImport, "Page"), item(`${SITE}/Website/Data`, "Folder"), item(`${SITE}/Website/Data/Navigation`, "Navigation"),
+    item(DEMO_PATHS.failingImport, "Page"), item(DEMO_PATHS.storageError, "Page"), item(`${SITE}/Website/Data`, "Folder"), item(`${SITE}/Website/Data/Navigation`, "Navigation"),
     item("/sitecore/media library", "Main section"), item("/sitecore/media library/Project", "Media folder"), item(MEDIA, "Media folder"),
     item(`${MEDIA}/Images`, "Media folder"), item(DEMO_PATHS.newImage, "Jpeg"), item(`${MEDIA}/Images/Store front`, "Jpeg"),
   ]
@@ -79,7 +81,7 @@ export function resetDemo() {
   const asStore = (list: Item[]) => new Map(list.map(item => [key(item.path), { ...item }]))
   // Staging and Production lack the new content, and "Legacy promo" was
   // recreated there by hand, so it has a different ID at the same path.
-  const missing = new Set([DEMO_PATHS.newPage, DEMO_PATHS.newFolder, DEMO_PATHS.missingParentPage, DEMO_PATHS.newImage, DEMO_PATHS.failingImport, DEMO_PATHS.missingTemplatePage, DEMO_PATHS.landingTemplate, DEMO_PATHS.landingBase].map(key))
+  const missing = new Set([DEMO_PATHS.newPage, DEMO_PATHS.newFolder, DEMO_PATHS.missingParentPage, DEMO_PATHS.newImage, DEMO_PATHS.failingImport, DEMO_PATHS.storageError, DEMO_PATHS.missingTemplatePage, DEMO_PATHS.landingTemplate, DEMO_PATHS.landingBase].map(key))
   const later = [...items.filter(item => !missing.has(key(item.path))).map(item => key(item.path) === key(DEMO_PATHS.conflictPage) ? { ...item, id: "ffffeeee-dddd-4ccc-bbbb-aaaa99998888" } : item),
     { id: "0a1b2c3d-9999-4e5f-8a9b-000000000999", name: "Old parka", path: DEMO_PATHS.extraInTo, template: "Product page" }]
   stores = new Map([["demo-dev", asStore(items)], ["demo-staging", asStore(later)], ["demo-prod", asStore(later.filter(item => !item.path.includes("/Summer launch")))]])
@@ -156,7 +158,9 @@ export const demoBackend: Backend = {
     store(env)
     const id = `${env}:${transferId}:${chunkSetId}`
     const chunks = received.get(id) ?? new Map<number, string>()
-    chunks.set(chunkId, await chunk.text())
+    const text = await chunk.text()
+    if (text.includes(JSON.stringify(DEMO_PATHS.storageError).slice(1, -1))) throw Object.assign(new Error('xmc.contentTransfer.saveChunk answered HTTP 500: {"Error":"The Azure Blob Storage connection string is invalid."}.'), { status: 500 })
+    chunks.set(chunkId, text)
     received.set(id, chunks)
   },
   async completeChunkSet(env, transferId, chunkSetId) {
