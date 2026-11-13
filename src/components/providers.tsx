@@ -10,7 +10,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
       <TooltipProvider>
-        <AppShell demoMode={false}>{children}</AppShell>
+        <AppShell>{children}</AppShell>
         <Toaster />
       </TooltipProvider>
     </ThemeProvider>
