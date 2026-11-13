@@ -4,7 +4,7 @@
 
 import type { Backend, DataTree, Env, TreeNode } from "./transfer"
 
-type Item = { id: string; name: string; path: string; template: string }
+type Item = { id: string; name: string; path: string; template: string; bases?: string[] }
 /** Sample template IDs. "Landing page" exists only in Development, so copying Black Friday is blocked. */
 const templateId = (name: string) => `7e3f0000-0000-4000-8000-${[...name].reduce((sum, char) => sum * 31 + char.charCodeAt(0), 7).toString(16).slice(-12).padStart(12, "0")}`
 const TEMPLATES = "/sitecore/templates/Project/Harbor and Pine"
@@ -26,6 +26,8 @@ export const DEMO_PATHS = {
   missingTemplatePage: `${HOME}/Campaigns/Black Friday`,
   /** The template Black Friday needs; only Development has it, so copy it first. */
   landingTemplate: `${TEMPLATES}/Landing page`,
+  /** "Landing page" inherits this, and only Development has it too. */
+  landingBase: `${TEMPLATES}/_Landing base`,
   products: `${HOME}/Products`,
   /** Only in Staging and Production: replacing the Products tree deletes it. */
   extraInTo: `${HOME}/Products/Old parka`,
@@ -44,8 +46,9 @@ const key = (path: string) => path.toLowerCase()
 function fullTree(): Item[] {
   let counter = 0
   const item = (path: string, template: string): Item => ({ id: guid(++counter), name: path.split("/").at(-1)!, path, template })
-  const template = (name: string): Item => ({ id: templateId(name), name, path: `${TEMPLATES}/${name}`, template: "Template" })
-  const names = ["Root", "Template", "Template folder", "Main section", "Headless Tenant", "Headless Site", "Page", "Folder", "Campaign page", "Landing page", "Product page", "Article page", "Navigation", "Media folder", "Jpeg"]
+  const template = (name: string): Item => ({ id: templateId(name), name, path: `${TEMPLATES}/${name}`, template: "Template",
+    bases: name === "Landing page" ? [templateId("_Landing base"), templateId("Page")] : undefined })
+  const names = ["Root", "Template", "Template folder", "Main section", "Headless Tenant", "Headless Site", "Page", "Folder", "Campaign page", "Landing page", "Product page", "Article page", "Navigation", "Media folder", "Jpeg", "_Landing base"]
   return [
     item("/sitecore", "Root"), item("/sitecore/layout", "Main section"), item("/sitecore/system", "Main section"),
     item("/sitecore/templates", "Main section"), item("/sitecore/templates/Project", "Template folder"), item(TEMPLATES, "Template folder"),
@@ -76,7 +79,7 @@ export function resetDemo() {
   const asStore = (list: Item[]) => new Map(list.map(item => [key(item.path), { ...item }]))
   // Staging and Production lack the new content, and "Legacy promo" was
   // recreated there by hand, so it has a different ID at the same path.
-  const missing = new Set([DEMO_PATHS.newPage, DEMO_PATHS.newFolder, DEMO_PATHS.missingParentPage, DEMO_PATHS.newImage, DEMO_PATHS.failingImport, DEMO_PATHS.missingTemplatePage, DEMO_PATHS.landingTemplate].map(key))
+  const missing = new Set([DEMO_PATHS.newPage, DEMO_PATHS.newFolder, DEMO_PATHS.missingParentPage, DEMO_PATHS.newImage, DEMO_PATHS.failingImport, DEMO_PATHS.missingTemplatePage, DEMO_PATHS.landingTemplate, DEMO_PATHS.landingBase].map(key))
   const later = [...items.filter(item => !missing.has(key(item.path))).map(item => key(item.path) === key(DEMO_PATHS.conflictPage) ? { ...item, id: "ffffeeee-dddd-4ccc-bbbb-aaaa99998888" } : item),
     { id: "0a1b2c3d-9999-4e5f-8a9b-000000000999", name: "Old parka", path: DEMO_PATHS.extraInTo, template: "Product page" }]
   stores = new Map([["demo-dev", asStore(items)], ["demo-staging", asStore(later)], ["demo-prod", asStore(later.filter(item => !item.path.includes("/Summer launch")))]])
@@ -119,9 +122,10 @@ export const demoBackend: Backend = {
     const found = store(env).get(key(path))
     return found ? { id: found.id, path: found.path, templateId: templateId(found.template), templateName: found.template } : null
   },
-  async templateExists(env, id) {
+  async templateInfo(env, id) {
     await wait(delay / 4)
-    return [...store(env).values()].some(item => item.id === id)
+    const found = [...store(env).values()].find(item => item.id === id)
+    return found ? { id: found.id, path: found.path, name: found.name, baseIds: found.bases ?? [] } : null
   },
   async createTransfer(env, transferId, trees) {
     await wait(delay)

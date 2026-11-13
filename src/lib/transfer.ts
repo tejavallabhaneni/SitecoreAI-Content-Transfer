@@ -4,6 +4,7 @@
 export type Env = { id: string; name: string; tenant?: string }
 /** `icons` lists the URLs to try for the item’s Sitecore icon, best first. */
 export type TreeNode = { id: string; name: string; path: string; template: string; templateId?: string; hasChildren: boolean; icons?: string[] }
+export type TemplateInfo = { id: string; path: string; name: string; baseIds: string[] }
 export type ItemRef = { id: string; path: string; templateId?: string; templateName?: string }
 /** "SingleItem" copies just the item; "ItemAndDescendants" copies it with every item under it. */
 export type Scope = "SingleItem" | "ItemAndDescendants"
@@ -31,8 +32,8 @@ export interface Backend {
   pollMs: number
   children(env: string, path: string): Promise<TreeNode[]>
   item(env: string, path: string): Promise<ItemRef | null>
-  /** Whether an item with this ID (here: a template) exists in the environment. */
-  templateExists(env: string, templateId: string): Promise<boolean>
+  /** A template by ID: its path, name and the base templates it inherits. Null when the lookup can't find it. */
+  templateInfo(env: string, templateId: string): Promise<TemplateInfo | null>
   /** A lighter `children` for comparisons (no icons). Falls back to `children`. */
   childrenForCheck?(env: string, path: string): Promise<TreeNode[]>
   createTransfer(env: string, transferId: string, trees: DataTree[]): Promise<void>
@@ -54,7 +55,7 @@ const lower = (path: string) => path.toLowerCase()
 /** Checks a plan before it becomes a draft. Returns an error message, or "" when it's fine. */
 export function planProblem(plan: Plan): string {
   if (!plan.items.length) return "Tick at least one item in the From tree."
-  if (plan.items.length > 20) return "Select at most 20 items. Use “with sub-items” instead of ticking each one."
+  if (plan.items.length > 50) return "Select at most 50 items. Use “with sub-items” instead of ticking each one."
   const paths = plan.items.map(item => lower(item.path))
   if (paths.some(isTopLevel)) return "Choose items inside the top-level folders (Content, Templates, Media Library…), not the folders themselves."
   if (new Set(paths).size !== paths.length) return "The same item is selected twice."
@@ -67,10 +68,13 @@ export type ReviewOutcome = "create" | "update" | "replace" | "keep" | "conflict
 /** For an item copied with sub-items: whether each sub-item is new in To, already there (same ID), or a different item at the same path. */
 export type SubItemState = "new" | "exists" | "differs"
 export type SubItem = { path: string; state: SubItemState }
-export type MissingTemplate = { id: string; name: string; usedBy: number }
+/** A template To lacks: used directly by `usedBy` items, or inherited by another missing template. */
+export type MissingTemplate = { id: string; name: string; path?: string; usedBy: number; inheritedBy?: string }
 export type ReviewRow = {
   path: string; scope: Scope; outcome: ReviewOutcome; parents: number; message?: string
   missingTemplates?: MissingTemplate[]
+  /** Templates To lacks that this transfer already includes; they are copied first. */
+  templatesFirst?: string[]
   removes?: string[]; removesTruncated?: boolean
   subItems?: SubItem[]; subItemsTruncated?: boolean
 }
@@ -141,15 +145,32 @@ export async function reviewPlan(backend: Backend, source: string, destination: 
       entry.usedBy++
       used.set(key, entry)
     }
+    // Missing templates, including inherited base templates. A template counts as
+    // missing only when the same lookup finds it in From; if From can't find it
+    // either, the lookup can't answer for it and it isn't reported.
+    const included = (itemPath: string) => plan.items.some(selected => lower(itemPath) === lower(selected.path) || (selected.scope === "ItemAndDescendants" && lower(itemPath).startsWith(lower(selected.path) + "/")))
     const missingTemplates: MissingTemplate[] = []
+    const templatesFirst: string[] = []
+    const seen = new Set<string>()
+    const visit = async (id: string, name: string, usedBy: number, inheritedBy?: string): Promise<void> => {
+      const key = normalizeId(id)
+      if (seen.has(key)) return
+      seen.add(key)
+      const toInfo = await backend.templateInfo(destination, id)
+      if (toInfo) {
+        // Present in To, but its own base templates must be there too.
+        for (const base of toInfo.baseIds) await visit(base, "", 0, toInfo.name || name)
+        return
+      }
+      const fromInfo = await backend.templateInfo(source, id)
+      if (!fromInfo) return
+      if (included(fromInfo.path)) templatesFirst.push(fromInfo.path)
+      else missingTemplates.push({ id, name: fromInfo.name || name, path: fromInfo.path, usedBy, ...(inheritedBy ? { inheritedBy } : {}) })
+      for (const base of fromInfo.baseIds) await visit(base, "", 0, fromInfo.name || name)
+    }
     const templates = [...used.values()]
     for (let index = 0; index < templates.length; index += 8) {
-      const chunk = templates.slice(index, index + 8)
-      // A template counts as missing only when the same lookup finds it in From.
-      // If From can't find it either, the lookup can't answer for that template,
-      // so it isn't reported (no false alarms).
-      const found = await Promise.all(chunk.map(async template => (await backend.templateExists(destination, template.id)) || !(await backend.templateExists(source, template.id))))
-      chunk.forEach((template, n) => { if (!found[n]) missingTemplates.push(template) })
+      await Promise.all(templates.slice(index, index + 8).map(template => visit(template.id, template.name, template.usedBy)))
     }
     if (missingTemplates.length) {
       const names = missingTemplates.map(t => t.name)
@@ -157,11 +178,12 @@ export async function reviewPlan(backend: Backend, source: string, destination: 
         message: `${names.length === 1 ? "Template" : `${names.length} templates`} missing in the destination: ${names.slice(0, 3).join(", ")}${names.length > 3 ? ` and ${names.length - 3} more` : ""}` })
       continue
     }
-    if (scope !== "ItemAndDescendants") { rows.push({ path, scope, parents: parents.length, outcome }); continue }
+    const firstNote = templatesFirst.length ? { templatesFirst: templatesFirst.sort() } : {}
+    if (scope !== "ItemAndDescendants") { rows.push({ path, scope, parents: parents.length, outcome, ...firstNote }); continue }
     const toByPath = new Set([...toTree.items.values()].map(sub => lower(sub.path)))
     const subItems: SubItem[] = [...fromTree.items].map(([id, sub]) => ({ path: sub.path, state: toTree.items.has(id) ? "exists" as const : toByPath.has(lower(sub.path)) ? "differs" as const : "new" as const }))
       .sort((a, b) => a.path.localeCompare(b.path))
-    const row: ReviewRow = { path, scope, parents: parents.length, outcome, subItems, subItemsTruncated: fromTree.truncated || toTree.truncated }
+    const row: ReviewRow = { path, scope, parents: parents.length, outcome, subItems, subItemsTruncated: fromTree.truncated || toTree.truncated, ...firstNote }
     // Replacing a tree deletes items under it in To that From doesn't have.
     if (outcome === "replace") {
       row.removes = [...toTree.items].filter(([id]) => !fromTree.items.has(id)).map(([, sub]) => sub.path).sort()
@@ -217,7 +239,13 @@ export async function runTransfer(backend: Backend, source: string, destination:
   if (blocked) throw new Error(`${blocked.path}: ${blocked.message}`)
 
   const trees = plan.items.map(item => treeFor(item, plan.mergeStrategy))
-  const groups = [false, true].map(media => ({ media, trees: trees.filter(tree => isMedia(tree.itemPath) === media) })).filter(group => group.trees.length)
+  // Templates go first, in their own transfer, so content that uses them can import.
+  const isTemplate = (path: string) => /^\/sitecore\/templates\//i.test(path)
+  const groups = [
+    { media: false, trees: trees.filter(tree => isTemplate(tree.itemPath)) },
+    { media: false, trees: trees.filter(tree => !isTemplate(tree.itemPath) && !isMedia(tree.itemPath)) },
+    { media: true, trees: trees.filter(tree => isMedia(tree.itemPath)) },
+  ].filter(group => group.trees.length)
   let total = 0
   let partial = false
   for (const group of groups) {

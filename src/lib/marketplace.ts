@@ -6,7 +6,7 @@
 // sign-in or server proxy: the SDK bridge to the host does the authentication.
 
 import type { ClientSDK } from "@sitecore-marketplace-sdk/client"
-import type { Backend, ChunkSet, Env, TreeNode } from "./transfer"
+import type { Backend, ChunkSet, Env, TemplateInfo, TreeNode } from "./transfer"
 
 const BRIDGE_TIMEOUT_MS = 200_000
 const CALL_TIMEOUT_MS = 60_000
@@ -125,7 +125,7 @@ const schemaGap = (message: string) => /cannot query field|unknown (field|argume
 // preview API, which answers with an absolute icon URL.
 const previewIds = new Map<string, string>()
 const iconOrigins = new Map<string, Promise<string>>()
-const templateCache = new Map<string, boolean>()
+const templateCache = new Map<string, TemplateInfo | null>()
 /** 32 hex digits (with or without braces and dashes) as a dashed GUID. */
 export const asGuid = (id: string) => {
   const hex = id.replace(/[{}-]/g, "")
@@ -285,23 +285,35 @@ export const marketplaceBackend: Backend = {
     const template = record(found?.template)
     return found ? { id: String(found.itemId), path: String(found.path), templateId: text(template?.templateId) || undefined, templateName: text(template?.name) || undefined } : null
   },
-  async templateExists(env, templateId) {
+  async templateInfo(env, templateId) {
     const key = `${env}:${templateId.toLowerCase()}`
     const cached = templateCache.get(key)
     if (cached !== undefined) return cached
-    // Template IDs come back as 32 hex digits; look them up as a dashed GUID and,
-    // in case a schema wants it, the braced form too.
+    // Three ways in one request: the dashed ID, the braced ID, and the braced ID
+    // as a path (Sitecore resolves "{GUID}" paths by ID). The first that answers wins.
     const dashed = asGuid(templateId)
-    const sdkClient = await sdk()
-    const query = `query Template { a: item(where: { database: "master", itemId: ${JSON.stringify(dashed)} }) { itemId } b: item(where: { database: "master", itemId: ${JSON.stringify(`{${dashed.toUpperCase()}}`)} }) { itemId } }`
-    const result = await race(sdkClient.mutate("xmc.authoring.graphql" as never, { params: { query: { sitecoreContextId: env }, body: { query, variables: {} } } } as never), CALL_TIMEOUT_MS, "Checking templates")
-    let level = record(result)
-    let errors: unknown[] = []
-    for (let depth = 0; depth < 5 && level && !("a" in level); depth++) { if (Array.isArray(level.errors)) errors = level.errors; level = record(level.data) }
-    const exists = Boolean(record(level?.a)?.itemId || record(level?.b)?.itemId)
-    if (!exists && !level && errors.length) throw new Error(`SitecoreAI couldn’t check template ${dashed}: ${text(record(errors[0])?.message) || "GraphQL error"}`)
-    templateCache.set(key, exists)
-    return exists
+    const braced = `{${dashed.toUpperCase()}}`
+    const ask = async (withBase: boolean) => {
+      const fields = `itemId name path${withBase ? ' base: field(name: "__Base template") { value }' : ""}`
+      const query = `query Template { a: item(where: { database: "master", itemId: ${JSON.stringify(dashed)} }) { ${fields} } b: item(where: { database: "master", itemId: ${JSON.stringify(braced)} }) { ${fields} } c: item(where: { database: "master", path: ${JSON.stringify(braced)} }) { ${fields} } }`
+      const sdkClient = await sdk()
+      const result = await race(sdkClient.mutate("xmc.authoring.graphql" as never, { params: { query: { sitecoreContextId: env }, body: { query, variables: {} } } } as never), CALL_TIMEOUT_MS, "Checking templates")
+      let level = record(result)
+      let errors: string[] = []
+      for (let depth = 0; depth < 5 && level && !("a" in level || "b" in level || "c" in level); depth++) {
+        if (Array.isArray(level.errors)) errors = level.errors.map(error => text(record(error)?.message))
+        level = record(level.data)
+      }
+      return { found: ["a", "b", "c"].map(alias => record(level?.[alias])).find(item => item?.itemId), errors }
+    }
+    const first = await ask(true)
+    const found = first.found ?? (first.errors.some(schemaGap) ? (await ask(false)).found : undefined)
+    const info: TemplateInfo | null = found ? {
+      id: String(found.itemId), path: String(found.path), name: String(found.name ?? ""),
+      baseIds: (text(record(found.base)?.value).match(/\{?[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}\}?/gi) ?? []).map(id => id.replace(/[{}]/g, "")),
+    } : null
+    templateCache.set(key, info)
+    return info
   },
   async childrenForCheck(env, path) {
     // The comparison only needs IDs, paths and templates: no icons or thumbnails.
