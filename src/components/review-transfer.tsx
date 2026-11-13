@@ -220,7 +220,8 @@ export function ReviewTransfer({ id }: { id: string }) {
       {draft.status === "running" && <p className="text-sm text-muted-foreground">Keep this tab open while chunks are copied. Once the import starts, SitecoreAI finishes it.</p>}
       {draft.status === "done" && <div className="rounded-lg bg-emerald-100 p-4 text-sm text-emerald-800"><p className="font-semibold">{draft.error ? "Imported with errors" : "Import complete"}</p>
         <p className="mt-1">{draft.error ?? `${draft.items ?? 0} item${draft.items === 1 ? " was" : "s were"} sent to the authoring database (master) of ${draft.destination.name}.${draft.plan.mergeStrategy === "KeepExistingItem" ? " Items that were already there were kept as they were." : ""} Publish when you’re ready.`}</p></div>}
-      {draft.status === "failed" && <div role="alert" className="rounded-lg bg-rose-100 p-4 text-sm text-rose-800"><p className="font-semibold">What went wrong</p><p className="mt-1">{draft.error} Check {draft.destination.name} before trying again. Failed writes aren’t retried automatically.</p></div>}
+      {draft.status === "failed" && <div role="alert" className="rounded-lg bg-rose-100 p-4 text-sm text-rose-800"><p className="font-semibold">What went wrong</p><p className="mt-1 break-words">{/[.!?]$/.test(draft.error?.trim() ?? "") ? draft.error : `${draft.error ?? "The transfer stopped"}.`}</p>
+        <p className="mt-2">{draft.wrote ? <>Some items may already be in {draft.destination.name}. Check it before trying again.</> : <>Nothing was imported into {draft.destination.name}, so it’s safe to try again.</>}</p></div>}
       {draft.status !== "running" && <Link href="/" onClick={resetWizard} className="inline-flex items-center gap-2 text-sm font-semibold underline-offset-4 hover:underline">Start another transfer<ArrowRight className="size-4" aria-hidden="true" /></Link>}
     </section>}
 

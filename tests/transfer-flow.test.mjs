@@ -1,6 +1,7 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { DEMO_ENVS, DEMO_PATHS, demoBackend, resetDemo, setDemoDelay } from "../src/lib/demo-sitecore.ts"
+import { chunkIsMedia } from "../src/lib/marketplace.ts"
 import { approvalsFor, importState, missingParents, parentPaths, planProblem, reviewPlan, runTransfer, treeFor } from "../src/lib/transfer.ts"
 
 setDemoDelay(0)
@@ -137,6 +138,58 @@ test("run: content and media travel separately", async () => {
   assert.ok(await demoBackend.item(STAGING, DEMO_PATHS.newImage))
 })
 
+// A backend whose chunks report (or don't report) IsMedia, and whose destination
+// accepts a chunk only with the right flag.
+function chunkFake({ flagged, rightFlag = true, failWith }) {
+  const saves = []
+  const fake = {
+    pollMs: 0,
+    children: async () => [],
+    item: async (env, path) => ({ id: `id-${path}`, path }),
+    createTransfer: async () => {},
+    transferStatus: async () => ({ state: "Completed", chunkSets: [{ chunkSetId: "set", chunkCount: 1, totalItemCount: 1 }] }),
+    getChunk: async () => (flagged === undefined ? { data: new Blob(["x"]) } : { data: new Blob(["x"]), isMedia: flagged }),
+    saveChunk: async (env, id, set, n, data, isMedia) => {
+      saves.push(isMedia)
+      if (failWith) throw Object.assign(new Error(`HTTP ${failWith}`), { status: failWith })
+      if (isMedia !== rightFlag) throw Object.assign(new Error("xmc.contentTransfer.saveChunk answered HTTP 400."), { status: 400 })
+    },
+    completeChunkSet: async () => "f.raif",
+    deleteTransfer: async () => {},
+    consumeFile: async () => {},
+    blobState: async () => ({ state: "Transferred" }),
+  }
+  return { fake, saves }
+}
+
+test("chunks: the IsMedia flag from the source is sent as-is, even for a content path", async () => {
+  const { fake, saves } = chunkFake({ flagged: true, rightFlag: true })
+  await runTransfer(fake, "A", "B", plan(["/sitecore/content/S/P"]), approve, () => {}, () => "t")
+  assert.deepEqual(saves, [true])
+})
+
+test("chunks: with no flag from the source, a rejected chunk is retried once with the other value", async () => {
+  const { fake, saves } = chunkFake({ flagged: undefined, rightFlag: true })
+  await runTransfer(fake, "A", "B", plan(["/sitecore/content/S/P"]), approve, () => {}, () => "t")
+  assert.deepEqual(saves, [false, true])
+})
+
+test("chunks: no retry when the source gave the flag, or when the error isn't a rejection", async () => {
+  const flagged = chunkFake({ flagged: false, rightFlag: true })
+  await assert.rejects(runTransfer(flagged.fake, "A", "B", plan(["/sitecore/content/S/P"]), approve, () => {}, () => "t"), /HTTP 400/)
+  assert.deepEqual(flagged.saves, [false])
+  const denied = chunkFake({ flagged: undefined, failWith: 403 })
+  await assert.rejects(runTransfer(denied.fake, "A", "B", plan(["/sitecore/content/S/P"]), approve, () => {}, () => "t"), /HTTP 403/)
+  assert.deepEqual(denied.saves, [false])
+})
+
+test("chunks: IsMedia is read from Content-Disposition", () => {
+  assert.equal(chunkIsMedia("attachment; filename=0; IsMedia=True"), true)
+  assert.equal(chunkIsMedia('attachment; filename="0.bin"; isMedia="false"'), false)
+  assert.equal(chunkIsMedia("attachment; filename=0"), undefined)
+  assert.equal(chunkIsMedia(null), undefined)
+})
+
 test("run: a failed import is reported, and nothing is written", async () => {
   await assert.rejects(run(plan([DEMO_PATHS.failingImport])), /could not import.*Broken import/)
   assert.equal(await demoBackend.item(STAGING, DEMO_PATHS.failingImport), null)
@@ -150,7 +203,7 @@ test("run: follows the Content Transfer call order and always cleans up the sour
     item: async (env, path) => ({ id: `id-${path}`, path }),
     createTransfer: async (env) => { calls.push(`create@${env}`) },
     transferStatus: async () => ({ state: "Completed", chunkSets: [{ chunkSetId: "set", chunkCount: 2, totalItemCount: 3 }] }),
-    getChunk: async (env, id, set, n) => { calls.push(`get${n}@${env}`); return new Blob(["x"]) },
+    getChunk: async (env, id, set, n) => { calls.push(`get${n}@${env}`); return { data: new Blob(["x"]) } },
     saveChunk: async (env, id, set, n) => { calls.push(`save${n}@${env}`); if (n === 1 && fake.failSave) throw new Error("disk full") },
     completeChunkSet: async (env) => { calls.push(`complete@${env}`); return "f.raif" },
     deleteTransfer: async (env) => { calls.push(`delete@${env}`) },

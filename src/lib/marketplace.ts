@@ -46,10 +46,41 @@ function race<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
 }
 
 /** `query` wraps results as `{ data: { data, error, response } }`; `mutate` doesn't. Walk down to the payload. */
+/** What an error body says, if anything: a message, a problem-details title/detail, or the raw JSON. */
+function detail(error: unknown): string {
+  const body = record(error)
+  const said = text(body?.message, body?.detail, body?.title, body?.error, body?.Message, error)
+  if (said) return said
+  return body && Object.keys(body).length ? JSON.stringify(body).slice(0, 300) : ""
+}
+
+/** The HTTP response somewhere in an SDK result, for its status and headers. */
+function responseOf(result: unknown): { status?: number; headers?: Headers } | null {
+  let current = record(result)
+  for (let depth = 0; depth < 4 && current; depth++) {
+    const response = record(current.response)
+    if (response && (typeof response.status === "number" || response.headers)) return response as { status?: number; headers?: Headers }
+    current = record(current.data)
+  }
+  return null
+}
+
+const HINTS: Record<number, string> = {
+  401: "SitecoreAI didn’t accept the app’s sign-in. Refresh the page and try again.",
+  403: "The app isn’t allowed to do this in that environment. Check the app’s access in App Studio and that you’re an Organization Admin or Owner.",
+  404: "Sitecore couldn’t find the transfer. It may have expired; start the transfer again.",
+  413: "The chunk was too large for SitecoreAI to accept.",
+}
+
 function unwrap<T>(result: unknown, what: string): T | null {
   let current = record(result)
   for (let depth = 0; depth < 4 && current; depth++) {
-    if (current.error) throw Object.assign(new Error(`${what}: ${text(record(current.error)?.message, current.error) || "failed"}`), { status: record(current.response)?.status })
+    if (current.error) {
+      const status = responseOf(current)?.status ?? responseOf(result)?.status
+      const said = detail(current.error)
+      const hint = status ? HINTS[status] : undefined
+      throw Object.assign(new Error(`${what} ${status ? `answered HTTP ${status}` : "failed"}${said ? `: ${said}` : ""}.${hint ? ` ${hint}` : ""}`), { status })
+    }
     const status = record(current.response)?.status
     if (typeof status === "number" && status >= 400) throw Object.assign(new Error(`${what} answered HTTP ${status}.`), { status })
     const inner = current.data
@@ -99,12 +130,22 @@ async function graphqlItem(env: string, query: string, variables: Record<string,
   return { item: item ?? null, errors: errors.map(error => text(record(error)?.message, error) || "GraphQL error") }
 }
 
-async function call<T>(kind: "query" | "mutate", operation: string, env: string, params: Record<string, unknown>, timeout = CALL_TIMEOUT_MS): Promise<T | null> {
+async function raw(kind: "query" | "mutate", operation: string, env: string, params: Record<string, unknown>, timeout = CALL_TIMEOUT_MS): Promise<unknown> {
   const sdkClient = await sdk()
   const query = { ...(record(params.query) ?? {}), sitecoreContextId: env }
   const request = { params: { ...params, query }, timeoutMs: timeout } as never
   const promise = kind === "query" ? sdkClient.query(operation as never, request) : sdkClient.mutate(operation as never, request)
-  return unwrap<T>(await race(promise as Promise<unknown>, timeout, operation), operation)
+  return race(promise as Promise<unknown>, timeout, operation)
+}
+
+async function call<T>(kind: "query" | "mutate", operation: string, env: string, params: Record<string, unknown>, timeout = CALL_TIMEOUT_MS): Promise<T | null> {
+  return unwrap<T>(await raw(kind, operation, env, params, timeout), operation)
+}
+
+/** IsMedia from a chunk's Content-Disposition header, e.g. `attachment; filename=0; IsMedia=True`. */
+export function chunkIsMedia(disposition: string | null | undefined): boolean | undefined {
+  const match = /\bis_?media\s*=\s*"?(true|false|1|0)"?/i.exec(disposition ?? "")
+  return match ? /^(true|1)$/i.test(match[1]) : undefined
 }
 
 type RawItem = { itemId: string; name: string; path: string; icon?: unknown; template?: { name?: string; templateId?: string } | null; children?: { nodes?: unknown[] } | null }
@@ -340,10 +381,13 @@ export const marketplaceBackend: Backend = {
     }
   },
   async getChunk(env, transferId, chunkSetId, chunkId) {
-    const data = await call<unknown>("query", "xmc.contentTransfer.getChunk", env, { path: { transferId, chunksetId: chunkSetId, chunkId } }, CHUNK_TIMEOUT_MS)
+    const result = await raw("query", "xmc.contentTransfer.getChunk", env, { path: { transferId, chunksetId: chunkSetId, chunkId } }, CHUNK_TIMEOUT_MS)
+    const data = unwrap<unknown>(result, "xmc.contentTransfer.getChunk")
     const blob = data instanceof Blob ? data : data instanceof ArrayBuffer || ArrayBuffer.isView(data) ? new Blob([data as BlobPart]) : null
     if (!blob || blob.size === 0) throw new Error(`Chunk ${chunkId} came back empty.`)
-    return blob
+    const headers = responseOf(result)?.headers
+    const isMedia = chunkIsMedia(typeof headers?.get === "function" ? headers.get("content-disposition") : undefined)
+    return isMedia === undefined ? { data: blob } : { data: blob, isMedia }
   },
   async saveChunk(env, transferId, chunkSetId, chunkId, chunk, isMedia) {
     // The Blob goes as-is; isMedia must always be sent or the endpoint answers 405.

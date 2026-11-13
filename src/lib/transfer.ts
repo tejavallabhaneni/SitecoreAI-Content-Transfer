@@ -38,7 +38,8 @@ export interface Backend {
   childrenForCheck?(env: string, path: string): Promise<TreeNode[]>
   createTransfer(env: string, transferId: string, trees: DataTree[]): Promise<void>
   transferStatus(env: string, transferId: string): Promise<{ state: string; chunkSets: ChunkSet[] }>
-  getChunk(env: string, transferId: string, chunkSetId: string, chunkId: number): Promise<Blob>
+  /** The chunk as received, and its IsMedia flag when the source says (Content-Disposition). */
+  getChunk(env: string, transferId: string, chunkSetId: string, chunkId: number): Promise<{ data: Blob; isMedia?: boolean }>
   saveChunk(env: string, transferId: string, chunkSetId: string, chunkId: number, chunk: Blob, isMedia: boolean): Promise<void>
   completeChunkSet(env: string, transferId: string, chunkSetId: string): Promise<string>
   deleteTransfer(env: string, transferId: string): Promise<void>
@@ -212,6 +213,9 @@ export async function reviewPlan(backend: Backend, source: string, destination: 
   return rows
 }
 
+/** A request the destination refused (bad request, wrong media flag), as opposed to an outage or auth problem. */
+const rejected = (error: unknown) => [400, 405, 409, 415, 422].includes(Number((error as { status?: unknown } | null)?.status))
+
 export type Progress = { phase: 1 | 2 | 3 | 4 | 5; stage: string; items?: number; chunk?: number; chunks?: number }
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -288,8 +292,16 @@ export async function runTransfer(backend: Backend, source: string, destination:
       for (const set of status.chunkSets) {
         for (let chunk = 0; chunk < set.chunkCount; chunk++) {
           report({ phase: 2, stage: `Copying chunk ${copied + 1} of ${chunks}`, chunk: copied, chunks, items })
-          const blob = await backend.getChunk(source, transferId, set.chunkSetId, chunk)
-          await backend.saveChunk(destination, transferId, set.chunkSetId, chunk, blob, group.media)
+          const { data, isMedia: flagged } = await backend.getChunk(source, transferId, set.chunkSetId, chunk)
+          // The source says whether a chunk is media; when it can't be read, guess from
+          // the paths and, if the destination rejects the chunk, try the other value once.
+          const media = flagged ?? group.media
+          try {
+            await backend.saveChunk(destination, transferId, set.chunkSetId, chunk, data, media)
+          } catch (error) {
+            if (flagged !== undefined || !rejected(error)) throw error
+            await backend.saveChunk(destination, transferId, set.chunkSetId, chunk, data, !media)
+          }
           copied++
         }
         report({ phase: 3, stage: "Preparing the file on the destination", chunk: copied, chunks, items })

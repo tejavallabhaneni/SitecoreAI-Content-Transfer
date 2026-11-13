@@ -11,6 +11,8 @@ export type Status = "starting" | "outside" | "loading" | "ready" | "error"
 export type Draft = {
   id: string; name: string; plan: Plan; source: Env; destination: Env
   status: "draft" | "running" | "done" | "failed"; phase?: number; stage?: string; error?: string
+  /** An import into the destination started, so something may have been written there. */
+  wrote?: boolean
   items?: number; createdAt: string; startedAt?: string; finishedAt?: string
 }
 type State = { status: Status; demo: boolean; envs: Env[]; error?: string; source?: string; destination?: string; drafts: Map<string, Draft>; version: number }
@@ -102,7 +104,7 @@ export async function startDraft(id: string, approval: { overwriteApproved: bool
   update(id, { status: "running", startedAt: new Date().toISOString(), phase: 1, stage: "Starting" })
   try {
     const result = await runTransfer(backend(), draft.source.id, draft.destination.id, draft.plan, { approved: true, ...approval },
-      progress => update(id, { phase: progress.phase, stage: progress.stage, items: progress.items }))
+      progress => update(id, { phase: progress.phase, stage: progress.stage, items: progress.items, ...(progress.phase >= 4 ? { wrote: true } : {}) }))
     update(id, { status: "done", phase: 5, items: result.items, finishedAt: new Date().toISOString(), ...(result.partial ? { error: "Some items did not import. Check the destination." } : {}) })
   } catch (error) {
     update(id, { status: "failed", error: error instanceof Error ? error.message : "The transfer stopped.", finishedAt: new Date().toISOString() })
