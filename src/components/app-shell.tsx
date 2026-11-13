@@ -26,7 +26,7 @@ const nav = [
   { href: "/environments", label: "Environments", icon: Server },
 ]
 
-function NavLinks({ onNavigate, demoMode }: { onNavigate?: () => void; demoMode: boolean }) {
+function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname()
   return (
     <nav className="flex flex-col gap-1">
@@ -75,14 +75,14 @@ function Brand() {
   )
 }
 
-export function AppShell({ children, demoMode }: { children: React.ReactNode; demoMode: boolean }) {
+export function AppShell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false)
 
   return (
     <div className="flex min-h-full flex-1">
       <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col gap-6 border-r border-sidebar-border bg-sidebar p-4 md:flex">
         <Brand />
-        <NavLinks demoMode={demoMode} />
+        <NavLinks />
         <p className="mt-auto text-xs leading-relaxed text-sidebar-foreground/50">
           Read-only history from SitecoreAI. Your content stays in SitecoreAI.
         </p>
@@ -109,7 +109,7 @@ export function AppShell({ children, demoMode }: { children: React.ReactNode; de
               </SheetTitle>
             </SheetHeader>
             <div className="px-2 pb-4">
-              <NavLinks demoMode={demoMode} onNavigate={() => setOpen(false)} />
+              <NavLinks onNavigate={() => setOpen(false)} />
             </div>
           </SheetContent>
         </Sheet>
