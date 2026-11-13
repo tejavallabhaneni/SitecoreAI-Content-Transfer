@@ -6,7 +6,7 @@ import path from "node:path"
 const root = process.cwd()
 const directories = execFileSync("npm", ["ls", "--omit=dev", "--parseable", "--all"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim().split(/\r?\n/).filter(p => p !== root)
 const inventory = []
-const sections = ["Content Transfer — third-party notices\n\nGenerated from installed production packages. Includes optional server/build dependencies; inclusion does not mean a package is sent to the browser. This inventory is not a legal clearance certificate.\n\nFonts: see /licenses/inter.txt and /licenses/geist-mono.txt.\n\nCan I Use data: Copyright Alexis Deveria and contributors, https://caniuse.com/ ; compressed by caniuse-lite, https://github.com/browserslist/caniuse-lite ; CC BY 4.0. The app does not modify that package's data.\n"]
+const sections = ["Content Transfer — third-party notices\n\nGenerated from installed production packages. Includes optional server/build dependencies; inclusion does not mean a package is sent to the browser. This inventory is not a legal clearance certificate.\n\nFonts: see /licenses/dm-sans.txt and /licenses/geist-mono.txt.\n\nCan I Use data: Copyright Alexis Deveria and contributors, https://caniuse.com/ ; compressed by caniuse-lite, https://github.com/browserslist/caniuse-lite ; CC BY 4.0. The app does not modify that package's data.\n"]
 const seen = new Set()
 async function projectLicense(packageName) {
   const directory = path.join(root, "node_modules", packageName)
