@@ -6,6 +6,7 @@ This is a custom logo for the Content Transfer app. It is not the official Sitec
 - 512 × 512 PNG: `public/brand/content-transfer-512.png`, suitable for an app-listing upload.
 - Shared interface component: `src/components/app-logo.tsx`, used in the desktop sidebar, mobile header and mobile navigation panel.
 - Root metadata references the same SVG for the browser icon and the PNG for the touch icon.
+- `src/app/favicon.ico` contains matching 16, 32, 48 and 256px icons, replacing the older browser favicon while preserving the previous version in Git history.
 
 Keep the SVG master and PNG in sync. The PNG was rendered from the SVG with the existing Next.js ImageResponse renderer. Neither asset contains customer data or environment details.
 
