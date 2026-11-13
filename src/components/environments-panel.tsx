@@ -1,85 +1,38 @@
 "use client"
 
-import { AlertCircle } from "lucide-react"
-
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Skeleton } from "@/components/ui/skeleton"
+import Link from "next/link"
+import { useSyncExternalStore } from "react"
+import { ArrowDown, ArrowRight, CheckCircle2, ChevronRight, Server, Unplug } from "lucide-react"
 import { ConnectEnvironments } from "@/components/connect-environments"
 import { SitecoreSignIn } from "@/components/sitecore-sign-in"
-import { useApi } from "@/hooks/use-api"
-import { kindLabel } from "@/lib/format"
-import type { Environment } from "@/lib/types"
+import { WorkflowSteps } from "@/components/workflow-steps"
+import { Button, buttonVariants } from "@/components/ui/button"
+import { connectionRevision, environments, isConnected, serverRevision, setConnection, subscribeConnection } from "@/lib/browser-session"
+import { cn } from "@/lib/utils"
 
 export function EnvironmentsPanel() {
-  const { data, error, loading, reload } = useApi<{ environments: Environment[] }>(
-    "/api/environments",
-  )
-  const environments = data?.environments ?? []
-
-  return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Environments</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Connect source and destination authoring environments using your own credentials.
-        </p>
-      </div>
-
+  useSyncExternalStore(subscribeConnection, connectionRevision, serverRevision)
+  const connected = isConnected()
+  const items = environments()
+  return <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+    <div><p className="eyebrow">Step 1 of 3</p><h1 className="page-title mt-2">Connect your environments</h1><p className="page-description">Choose where to copy content from and where to copy it to.</p></div>
+    <WorkflowSteps active={1} />
+    {connected ? <section className="surface p-5 sm:p-7" aria-labelledby="connected-heading">
+      <div className="mb-6 flex items-center gap-2 text-emerald-800"><CheckCircle2 className="size-5" /><h2 id="connected-heading" className="font-semibold">You’re connected</h2></div>
+      <div className="grid items-center gap-4 sm:grid-cols-[1fr_auto_1fr]">{items.map((item, index) => <FragmentCard key={item.id} host={item.host} destination={index === 1} />)}</div>
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t pt-5"><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => {
+        if (window.confirm("Disconnect these environments? Drafts and forwarding work in this tab will stop. Imports already accepted by Sitecore may continue.")) setConnection(null)
+      }}><Unplug className="size-4" />Disconnect</Button><Link href="/jobs/new" className={cn(buttonVariants({ size: "lg" }), "gap-2 px-4")}>Choose content<ArrowRight className="size-4" /></Link></div>
+    </section> : <>
       <SitecoreSignIn />
-      <details className="rounded-xl border p-4"><summary className="cursor-pointer text-sm font-medium">Advanced: connect using environment automation credentials</summary><div className="mt-4"><ConnectEnvironments /></div></details>
-
-      {error ? (
-        <Alert variant="destructive">
-          <AlertCircle />
-          <AlertTitle>Environments could not load</AlertTitle>
-          <AlertDescription>
-            {error}{" "}
-            <button type="button" className="font-medium underline" onClick={() => reload()}>
-              Try again
-            </button>
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      {loading && !data ? (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Skeleton className="h-36 w-full" />
-          <Skeleton className="h-36 w-full" />
-        </div>
-      ) : null}
-
-      {!loading && !error && environments.length === 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>No environments connected</CardTitle>
-            <CardDescription>
-              Connect two authoring environments above. Preview and Experience Edge delivery endpoints are not transfer destinations.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      ) : null}
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        {environments.map((env) => (
-          <Card key={env.id}>
-            <CardHeader>
-              <div className="flex items-start justify-between gap-2">
-                <CardTitle>{env.name}</CardTitle>
-                <Badge variant={env.connected ? "secondary" : "destructive"}>
-                  {env.connected ? "Connected" : "Disconnected"}
-                </Badge>
-              </div>
-              <CardDescription>
-                {kindLabel(env.kind)}{env.region ? ` · ${env.region}` : ""}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="font-mono text-xs text-muted-foreground">{env.host}</CardContent>
-          </Card>
-        ))}
-      </div>
-    </div>
-  )
+      <details className="surface group" id="other-options"><summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5 text-sm font-medium"><span>Other connection options<span className="mt-1 block text-xs font-normal text-muted-foreground">For developers with environment automation credentials</span></span><ChevronRight className="size-4 shrink-0 transition-transform group-open:rotate-90" /></summary><div className="border-t p-5 sm:p-6"><ConnectEnvironments /></div></details>
+      <p className="px-1 text-xs leading-5 text-muted-foreground">Connect authoring environments. Your connection lasts for this browser tab.</p>
+    </>}
+  </div>
 }
 
+function FragmentCard({ host, destination }: { host: string; destination: boolean }) {
+  return <>{destination && <><ArrowRight className="hidden size-5 text-muted-foreground sm:block" aria-hidden="true" /><ArrowDown className="mx-auto size-5 text-muted-foreground sm:hidden" aria-hidden="true" /></>}
+    <div className="min-w-0 rounded-lg border bg-muted/40 p-4"><div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground"><Server className="size-4" />{destination ? "Copy to" : "Copy from"}</div><p className="text-sm font-semibold">{destination ? "Destination" : "Source"}</p><p className="mt-1 break-all text-xs text-muted-foreground">{host}</p></div>
+  </>
+}

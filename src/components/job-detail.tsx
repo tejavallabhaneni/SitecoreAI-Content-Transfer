@@ -5,6 +5,7 @@ import { useState } from "react"
 import { ArrowRight, Play } from "lucide-react"
 import { toast } from "sonner"
 import { StatusBadge } from "@/components/status-badge"
+import { WorkflowSteps } from "@/components/workflow-steps"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -22,7 +23,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
   const job = data?.job
   async function verify() {
     setBusy(true); setReview(null)
-    try { setReview(await reviewDraft(jobId)); toast.success("Source and destination parent IDs match.") }
+    try { setReview(await reviewDraft(jobId)); toast.success("Transfer checks passed. You can review and start the transfer.") }
     catch (reason) { toast.error(reason instanceof Error ? reason.message : "Preflight failed.") }
     finally { setBusy(false) }
   }
@@ -40,15 +41,16 @@ export function JobDetail({ jobId }: { jobId: string }) {
   if (error || !job) return <Alert variant="destructive"><AlertTitle>Job could not be loaded</AlertTitle><AlertDescription>{error ?? "Reconnect and open a native transfer, or prepare a new draft."} <button type="button" className="underline" onClick={() => reload()}>Try again</button> · <Link href="/" className="underline">All jobs</Link></AlertDescription></Alert>
 
   return <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+    {job.plan && <WorkflowSteps active={3} />}
     <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-      <div className="min-w-0"><Link href="/" className="text-sm text-muted-foreground">← All jobs</Link>
+      <div className="min-w-0"><Link href="/" className="text-sm text-muted-foreground">← All transfers</Link>
         <h1 className="mt-2 break-all text-2xl font-semibold tracking-tight">{job.name}</h1>
         <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">{job.source?.host ?? "Source not recorded by destination API"}<ArrowRight className="size-4" />{job.target?.host ?? "Destination"}</p></div>
       <div className="flex flex-wrap items-center gap-2"><StatusBadge status={job.status} />
-        {job.plan && job.status === "queued" && <><Button variant="outline" onClick={() => void verify()} disabled={busy}>Verify parent IDs</Button><Button onClick={() => void run()} disabled={busy || !review}><Play />Run transfer</Button></>}
+        {job.plan && job.status === "queued" && <><Button variant="outline" onClick={() => void verify()} disabled={busy}>{busy ? "Checking…" : "Check transfer"}</Button><Button onClick={() => void run()} disabled={busy || !review}><Play />Start transfer</Button></>}
       </div>
     </div>
-    {review && <Alert><AlertTitle>Preflight passed</AlertTitle><AlertDescription>{review.length} source roots checked, with matching destination parent IDs. The server repeats these checks immediately before creating the export.</AlertDescription></Alert>}
+    {review && <Alert><AlertTitle>Ready for your approval</AlertTitle><AlertDescription>{review.length} selected content roots passed the source and destination checks. Review the content and settings below, then start the transfer.</AlertDescription></Alert>}
     {job.stage && <Card><CardHeader><CardTitle>{job.stage}</CardTitle><CardDescription>Keep this tab open while it forwards chunks. Imports already accepted by Sitecore continue there.</CardDescription></CardHeader>
       {job.exportOperationId && <CardContent><p className="break-all font-mono text-xs">Source export: {job.exportOperationId}</p></CardContent>}</Card>}
     {job.progressKnown && job.status === "running" && <Card><CardContent className="pt-4"><Progress value={job.progress} /><p className="mt-2 text-sm">{job.transferredItemsCount} of {job.itemCount} items written by Sitecore</p></CardContent></Card>}

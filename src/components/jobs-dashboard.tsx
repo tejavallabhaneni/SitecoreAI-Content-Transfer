@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { useMemo, useState, useSyncExternalStore } from "react"
 import { AlertCircle, ArrowRight, Plus, RefreshCw, Search } from "lucide-react"
 
 import { StatusBadge } from "@/components/status-badge"
@@ -24,6 +24,9 @@ import { formatRelative } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { HydratedJob, JobStatus, JobSummary } from "@/lib/types"
 
+import { GettingStarted } from "@/components/getting-started"
+import { connectionRevision, isConnected, serverRevision, subscribeConnection } from "@/lib/browser-session"
+
 type JobsResponse = {
   jobs: HydratedJob[]
   summary: JobSummary
@@ -41,6 +44,7 @@ const filters: { id: "all" | JobStatus; label: string }[] = [
 ]
 
 export function JobsDashboard() {
+  useSyncExternalStore(subscribeConnection, connectionRevision, serverRevision)
   const [status, setStatus] = useState<"all" | JobStatus>("all")
   const [query, setQuery] = useState("")
   const [page, setPage] = useState(1)
@@ -64,11 +68,13 @@ export function JobsDashboard() {
 
   const summary = data?.connected ? data.summary : undefined
 
+  if (!isConnected()) return <GettingStarted />
+
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Transfer jobs</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Your transfers</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             Review destination imports from SitecoreAI and prepare transfers between your authoring environments.
           </p>
@@ -92,7 +98,7 @@ export function JobsDashboard() {
             <div>
               <CardTitle>Recent transfers</CardTitle>
               <CardDescription>
-                Native imports and tab-local drafts. Counts reflect this page; source exports and chunk forwarding are not retained in Sitecore import history.
+                Your saved plans and recent imports from the destination environment.
               </CardDescription>
             </div>
             <div className="relative w-full lg:max-w-xs">

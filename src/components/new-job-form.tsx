@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { WorkflowSteps } from "@/components/workflow-steps"
 import { createDraft } from "@/lib/browser-session"
 import { useApi } from "@/hooks/use-api"
 import type { ContentItem, Environment } from "@/lib/types"
@@ -41,17 +42,18 @@ export function NewJobForm() {
   }
 
   return <form onSubmit={onSubmit} className="mx-auto flex w-full max-w-4xl flex-col gap-6">
-    <div><h1 className="text-2xl font-semibold tracking-tight">New transfer</h1>
-      <p className="mt-1 text-sm text-muted-foreground">Choose content roots, review parent IDs, and approve changes to the destination master database.</p></div>
-    <Card><CardHeader><CardTitle>Route</CardTitle><CardDescription>Transfers run between authoring environments. They do not publish to Experience Edge.</CardDescription></CardHeader>
+    <div><p className="eyebrow">Step 2 of 3</p><h1 className="page-title mt-2">Choose your content</h1>
+      <p className="mt-1 text-sm text-muted-foreground">Select the pages or media you want to copy. You’ll review the changes before starting.</p></div>
+    <WorkflowSteps active={2} />
+    <Card><CardHeader><CardTitle>Transfer details</CardTitle><CardDescription>Give this transfer a name so it’s easy to find.</CardDescription></CardHeader>
       <CardContent className="grid gap-4 sm:grid-cols-2">
-        <div className="grid gap-2 sm:col-span-2"><Label htmlFor="job-name">Job name</Label>
+        <div className="grid gap-2 sm:col-span-2"><Label htmlFor="job-name">Transfer name</Label>
           <Input id="job-name" value={name} onChange={event => setName(event.target.value)} placeholder="Campaign pages to staging" maxLength={120} required /></div>
         <div><Label>Source environment</Label><p className="mt-2 break-all text-sm">{envs[0]?.host ?? "Connect environments first"}</p></div>
         <div><Label>Destination environment</Label><p className="mt-2 break-all text-sm">{envs[1]?.host ?? "Connect environments first"}</p></div>
         <p className="flex items-center gap-2 text-xs text-muted-foreground sm:col-span-2">Source master <ArrowRight className="size-3" /> Destination master</p>
       </CardContent></Card>
-    <Card><CardHeader><CardTitle>Items</CardTitle><CardDescription>{Object.keys(selected).length} roots selected. Browse one folder at a time, or enter an exact path.</CardDescription>
+    <Card><CardHeader><CardTitle>Select content</CardTitle><CardDescription>{Object.keys(selected).length} selected. Browse a folder, then select what you want to copy.</CardDescription>
       <div className="flex gap-2"><Input value={path} onChange={event => setPath(event.target.value)} aria-label="Source content path" />
         <Button type="button" variant="outline" onClick={() => setBrowsePath(path)}>Browse</Button></div>
     </CardHeader><CardContent>
@@ -68,15 +70,15 @@ export function NewJobForm() {
         <span className="break-all">{item.path}</span><Button type="button" size="sm" variant="ghost" onClick={() => setSelected(old => { const next = { ...old }; delete next[item.id]; return next })}>Unselect</Button>
       </div>)}</div>}
     </CardContent></Card>
-    <Card><CardHeader><CardTitle>Transfer settings</CardTitle><CardDescription>The native API preserves item IDs and fields; it does not generate AI field mappings.</CardDescription></CardHeader>
+    <Card><CardHeader><CardTitle>Transfer settings</CardTitle><CardDescription>Choose how to handle child items and content that already exists.</CardDescription></CardHeader>
       <CardContent className="grid gap-4 sm:grid-cols-2">
         <div className="grid gap-2"><Label htmlFor="scope">Scope</Label><select id="scope" className="rounded-md border bg-background p-2 text-sm" value={scope} onChange={event => setScope(event.target.value as Plan["scope"])}>
-          <option value="SingleItem">Selected items only</option><option value="ItemAndDescendants">Selected items and descendants</option></select></div>
+          <option value="SingleItem">Selected items only</option><option value="ItemAndDescendants">Selected items and their children</option></select></div>
         <div className="grid gap-2"><Label htmlFor="merge-strategy">Existing destination items</Label><select id="merge-strategy" className="rounded-md border bg-background p-2 text-sm" value={mergeStrategy} onChange={event => setMergeStrategy(event.target.value as Plan["mergeStrategy"])}>
           <option value="KeepExistingItem">Keep existing items</option><option value="OverrideExistingItem">Overwrite matching items</option></select></div>
       </CardContent></Card>
     {formError && <p role="alert" className="text-sm text-destructive">{formError}</p>}
     <p className="text-xs text-muted-foreground">Drafts live only in this tab. Keep the tab open while forwarding chunks. Native imports and their history remain in Sitecore.</p>
-    <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => router.push("/")}>Cancel</Button><Button type="submit" disabled={envs.length !== 2}>Create and review transfer</Button></div>
+    <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => router.push("/")}>Cancel</Button><Button type="submit" disabled={envs.length !== 2}>Review transfer</Button></div>
   </form>
 }
