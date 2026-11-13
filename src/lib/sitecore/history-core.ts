@@ -20,11 +20,12 @@ export type SitecoreHistory = {
   Events?: Array<{ Name?: SitecoreTransferState; Date?: string }>
 }
 
-export function toStatus(state?: string): "queued" | "running" | "success" | "error" {
-  if (state === "Queued" || state === "Unknown") return "queued"
+export function toStatus(state?: string): "queued" | "running" | "success" | "error" | "unknown" {
+  if (state === "Queued") return "queued"
   if (state === "InProgress") return "running"
   if (state === "Finished") return "success"
-  return "error"
+  if (state === "Failed" || state === "Discarded") return "error"
+  return "unknown"
 }
 
 function validDate(date?: string): string {
@@ -38,7 +39,7 @@ export type DisplayJob = {
   targetEnvId: string
   itemIds: string[]
   mappings: never[]
-  status: "queued" | "running" | "success" | "error"
+  status: "queued" | "running" | "success" | "error" | "unknown"
   progress: number
   createdAt: string
   updatedAt: string
