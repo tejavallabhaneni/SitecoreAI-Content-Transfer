@@ -27,6 +27,10 @@ import type { HydratedJob, JobStatus, JobSummary } from "@/lib/types"
 type JobsResponse = {
   jobs: HydratedJob[]
   summary: JobSummary
+  page: number
+  pageSize: number
+  totalStatuses: number
+  totalHistory: number
 }
 
 const filters: { id: "all" | JobStatus; label: string }[] = [
@@ -41,7 +45,8 @@ const filters: { id: "all" | JobStatus; label: string }[] = [
 export function JobsDashboard() {
   const [status, setStatus] = useState<"all" | JobStatus>("all")
   const [query, setQuery] = useState("")
-  const url = status === "all" ? "/api/jobs" : `/api/jobs?status=${status}`
+  const [page, setPage] = useState(1)
+  const url = `/api/jobs?page=${page}${status === "all" ? "" : `&status=${status}`}`
   const { data, error, loading, reload } = useApi<JobsResponse>(url, 4000)
 
   const jobs = useMemo(() => {
@@ -78,7 +83,7 @@ export function JobsDashboard() {
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Queued" value={summary?.queued} hint="Waiting to run" />
-        <StatCard label="Running" value={summary?.running} hint="Publishing items now" />
+        <StatCard label="Running" value={summary?.running} hint="SitecoreAI imports" />
         <StatCard label="Success" value={summary?.success} hint="Imported to master" />
         <StatCard label="Error" value={summary?.error} hint="Need attention" />
       </div>
@@ -109,7 +114,7 @@ export function JobsDashboard() {
                 key={filter.id}
                 size="sm"
                 variant={status === filter.id ? "default" : "outline"}
-                onClick={() => setStatus(filter.id)}
+                onClick={() => { setStatus(filter.id); setPage(1) }}
               >
                 {filter.label}
               </Button>
@@ -187,11 +192,7 @@ export function JobsDashboard() {
                         <TableCell>
                           <div className="flex flex-col gap-1">
                             <StatusBadge status={job.status} />
-                            {job.status === "running" ? (
-                              <span className="text-xs text-muted-foreground">
-                                {job.progress}% complete
-                              </span>
-                            ) : null}
+                            
                           </div>
                         </TableCell>
                         <TableCell className="text-muted-foreground">
@@ -226,7 +227,7 @@ export function JobsDashboard() {
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {job.itemIds.length} items · {formatRelative(job.updatedAt)}
-                      {job.status === "running" ? ` · ${job.progress}%` : ""}
+                      
                     </p>
                   </Link>
                 ))}
@@ -236,7 +237,12 @@ export function JobsDashboard() {
         </CardContent>
       </Card>
 
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="mr-auto text-xs text-muted-foreground">
+          Showing page {page} of SitecoreAI records (counts reflect this page)
+        </div>
+        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>Previous</Button>
+        <Button variant="outline" size="sm" disabled={!data || page * data.pageSize >= Math.max(data.totalStatuses, data.totalHistory)} onClick={() => setPage(p => p + 1)}>Next</Button>
         <Button variant="ghost" size="sm" onClick={() => reload()}>
           <RefreshCw />
           Refresh
