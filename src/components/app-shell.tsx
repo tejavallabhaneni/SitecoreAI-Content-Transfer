@@ -30,7 +30,7 @@ function NavLinks({ onNavigate, demoMode }: { onNavigate?: () => void; demoMode:
   const pathname = usePathname()
   return (
     <nav className="flex flex-col gap-1">
-      {(demoMode ? nav : [{ href: "/transfer", label: "Transfer workspace", icon: LayoutDashboard }]).map((item) => {
+      {nav.map((item) => {
         const active =
           item.href === "/"
             ? pathname === "/"
@@ -84,7 +84,7 @@ export function AppShell({ children, demoMode }: { children: React.ReactNode; de
         <Brand />
         <NavLinks demoMode={demoMode} />
         <p className="mt-auto text-xs leading-relaxed text-sidebar-foreground/50">
-          {demoMode ? "Demo data only — no SitecoreAI transfer occurs." : "Authenticated transfer drafts only — execution disabled pending preflight."}
+          Read-only history from SitecoreAI. Your content stays in SitecoreAI.
         </p>
       </aside>
 

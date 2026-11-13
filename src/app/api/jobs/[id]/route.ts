@@ -1,52 +1,25 @@
 import { NextResponse } from "next/server"
-import { requireDemoMode } from "@/lib/security/demo-mode"
-
-import { getJob, hydrateJob, updateMapping } from "@/lib/store"
-import type { MappingDecision } from "@/lib/types"
+import { requireUser } from "@/lib/auth/session"
+import { readSitecoreConfig } from "@/lib/sitecore/client"
+import { getSitecoreJob } from "@/lib/sitecore/history"
 
 export const dynamic = "force-dynamic"
 
-const decisions: MappingDecision[] = ["accepted", "needs-review", "rejected"]
-
 export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> },
+  request: Request, { params }: { params: Promise<{ id: string }> },
 ) {
-  const blocked = requireDemoMode()
-  if (blocked) return blocked
-  const { id } = await params
-  const job = getJob(id)
-  if (!job) {
-    return NextResponse.json({ error: "That transfer job was not found." }, { status: 404 })
-  }
-  return NextResponse.json({ job: hydrateJob(job) })
-}
-
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const blocked = requireDemoMode()
-  if (blocked) return blocked
+  const user = await requireUser(request)
+  if (user instanceof NextResponse) return user
   const { id } = await params
   try {
-    const body = (await request.json()) as {
-      mappingId?: string
-      decision?: MappingDecision
-    }
-    if (!body.mappingId || !body.decision || !decisions.includes(body.decision)) {
-      return NextResponse.json(
-        { error: "Provide a mappingId and a decision of accepted, needs-review, or rejected." },
-        { status: 400 },
-      )
-    }
-    const job = updateMapping(id, body.mappingId, body.decision)
-    if (!job) {
-      return NextResponse.json({ error: "That transfer job was not found." }, { status: 404 })
-    }
-    return NextResponse.json({ job: hydrateJob(job) })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Could not update the mapping."
-    return NextResponse.json({ error: message }, { status: 400 })
+    const job = await getSitecoreJob(readSitecoreConfig("destination"), id)
+    if (!job) return NextResponse.json({ error: "Transfer not found in SitecoreAI history" }, { status: 404 })
+    return NextResponse.json({ job }, { headers: { "Cache-Control": "no-store" } })
+  } catch {
+    return NextResponse.json({ error: "Unable to retrieve SitecoreAI transfer details" }, { status: 502 })
   }
+}
+
+export async function PATCH() {
+  return NextResponse.json({ error: "Native SitecoreAI transfers do not have editable field mappings" }, { status: 405 })
 }

@@ -1,54 +1,40 @@
 import { NextResponse } from "next/server"
-import { requireDemoMode } from "@/lib/security/demo-mode"
-
-import { createJob, getJobs, hydrateJob, summarizeJobs } from "@/lib/store"
-import type { JobStatus } from "@/lib/types"
+import { requireUser } from "@/lib/auth/session"
+import { readSitecoreConfig } from "@/lib/sitecore/client"
+import { getSitecoreJobs } from "@/lib/sitecore/history"
 
 export const dynamic = "force-dynamic"
 
-const statuses: JobStatus[] = ["queued", "running", "success", "error"]
-
 export async function GET(request: Request) {
-  const blocked = requireDemoMode()
-  if (blocked) return blocked
-  const { searchParams } = new URL(request.url)
-  const statusParam = searchParams.get("status")
-  const status =
-    statusParam && statuses.includes(statusParam as JobStatus)
-      ? (statusParam as JobStatus)
-      : undefined
-  const jobs = getJobs(status).map(hydrateJob)
-  return NextResponse.json({ jobs, summary: summarizeJobs() })
+  const user = await requireUser(request)
+  if (user instanceof NextResponse) return user
+  const params = new URL(request.url).searchParams
+  const pageRaw = Number(params.get("page") ?? "1")
+  const page = Number.isInteger(pageRaw) && pageRaw >= 1 ? Math.min(pageRaw, 20) : 1
+  try {
+    const { jobs, pageSize, totalStatuses, totalHistory } =
+      await getSitecoreJobs(readSitecoreConfig("destination"), page)
+    const statusParam = params.get("status")
+    const filtered = ["queued", "running", "success", "error"].includes(statusParam ?? "")
+      ? jobs.filter(j => j.status === statusParam) : jobs
+    return NextResponse.json({
+      jobs: filtered,
+      page, pageSize, totalStatuses, totalHistory,
+      summary: {
+        queued: jobs.filter(j => j.status === "queued").length,
+        running: jobs.filter(j => j.status === "running").length,
+        success: jobs.filter(j => j.status === "success").length,
+        error: jobs.filter(j => j.status === "error").length,
+        total: jobs.length,
+      },
+    }, { headers: { "Cache-Control": "no-store" } })
+  } catch {
+    return NextResponse.json({ error: "Could not retrieve transfer status and history from SitecoreAI" }, { status: 502 })
+  }
 }
 
-export async function POST(request: Request) {
-  const blocked = requireDemoMode()
-  if (blocked) return blocked
-  try {
-    const body = (await request.json()) as {
-      name?: string
-      sourceEnvId?: string
-      targetEnvId?: string
-      itemIds?: string[]
-    }
-    if (!body.name?.trim()) {
-      return NextResponse.json({ error: "Give the transfer a name." }, { status: 400 })
-    }
-    if (!body.sourceEnvId || !body.targetEnvId) {
-      return NextResponse.json(
-        { error: "Choose both a source and a target environment." },
-        { status: 400 },
-      )
-    }
-    const job = createJob({
-      name: body.name,
-      sourceEnvId: body.sourceEnvId,
-      targetEnvId: body.targetEnvId,
-      itemIds: Array.isArray(body.itemIds) ? body.itemIds : [],
-    })
-    return NextResponse.json({ job: hydrateJob(job) }, { status: 201 })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Could not create the transfer."
-    return NextResponse.json({ error: message }, { status: 400 })
-  }
+export async function POST() {
+  return NextResponse.json({
+    error: "Transfer requests must use the verified stateless preflight flow; no jobs are stored by this app.",
+  }, { status: 405 })
 }
