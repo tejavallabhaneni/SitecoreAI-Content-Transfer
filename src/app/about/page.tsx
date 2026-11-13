@@ -16,7 +16,7 @@ export default function AboutPage() {
     <section className="surface space-y-3 p-6 text-sm leading-7">
       <h2 className="text-lg font-semibold">How it works</h2>
       <p>Content Transfer is a SitecoreAI Marketplace app. SitecoreAI tells it which environments it’s installed in, and every request goes through the Marketplace SDK with your SitecoreAI session. There are no credentials, sign-in pages or callbacks, and nothing is stored outside SitecoreAI.</p>
-      <p>Items move with Sitecore’s own Content Transfer API, so item IDs stay the same. Content is written to the destination’s master database; publishing stays in your normal workflow.</p>
+      <p>Items move with Sitecore’s own Content Transfer API, so item IDs stay the same. Content is written to the destination’s authoring database (master); publishing stays in your normal workflow.</p>
       <p>Not affiliated with, sponsored by or endorsed by Sitecore. Sitecore and SitecoreAI are trademarks of their respective owners.</p>
     </section>
 

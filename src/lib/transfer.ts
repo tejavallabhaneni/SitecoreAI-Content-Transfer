@@ -301,7 +301,7 @@ export async function runTransfer(backend: Backend, source: string, destination:
     }
     total += items
     for (const file of files) {
-      report({ phase: 4, stage: "Importing into the destination’s master database", items })
+      report({ phase: 4, stage: "Importing into the destination’s authoring database (master)", items })
       await backend.consumeFile(destination, file)
       const final = await poll(() => backend.blobState(destination, file), value => importState(value) !== "running", backend.pollMs, "Import on the destination")
       const meaning = importState(final)
@@ -309,6 +309,6 @@ export async function runTransfer(backend: Backend, source: string, destination:
       if (meaning === "partial") partial = true
     }
   }
-  report({ phase: 5, stage: partial ? "Imported with errors — check the destination" : "Imported to master — publish when you’re ready", items: total })
+  report({ phase: 5, stage: partial ? "Imported with errors — check the destination" : "Imported to the authoring database (master) — publish when you’re ready", items: total })
   return { items: total, partial }
 }

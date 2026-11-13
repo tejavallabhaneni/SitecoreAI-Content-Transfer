@@ -205,7 +205,7 @@ export function ReviewTransfer({ id }: { id: string }) {
 
     {draft.status === "draft" && review && !conflicts.length && <section className="surface space-y-4 p-5">
       <h2 className="font-semibold">Approve</h2>
-      <label className="flex items-start gap-3 text-sm"><Checkbox checked={ackWrite} onCheckedChange={value => setAckWrite(Boolean(value))} className="mt-0.5" /><span>Write these items to the <strong>master</strong> database of {draft.destination.name}. Publishing is a separate step.</span></label>
+      <label className="flex items-start gap-3 text-sm"><Checkbox checked={ackWrite} onCheckedChange={value => setAckWrite(Boolean(value))} className="mt-0.5" /><span>Write these items to the <strong>authoring database (master)</strong> of {draft.destination.name}. They won’t be live until you publish them.</span></label>
       {needs.overwrite && <label className="flex items-start gap-3 text-sm"><Checkbox checked={ackOverwrite} onCheckedChange={value => setAckOverwrite(Boolean(value))} className="mt-0.5" /><span>{updates > 0
         ? <>Overwrite <strong>{updates}</strong> existing item{updates === 1 ? "" : "s"} in {draft.destination.name} with the From version.</>
         : <>Overwrite matching items in {draft.destination.name} if any appear there before the transfer runs.</>}</span></label>}
@@ -219,7 +219,7 @@ export function ReviewTransfer({ id }: { id: string }) {
       <Timeline draft={draft} />
       {draft.status === "running" && <p className="text-sm text-muted-foreground">Keep this tab open while chunks are copied. Once the import starts, SitecoreAI finishes it.</p>}
       {draft.status === "done" && <div className="rounded-lg bg-emerald-100 p-4 text-sm text-emerald-800"><p className="font-semibold">{draft.error ? "Imported with errors" : "Import complete"}</p>
-        <p className="mt-1">{draft.error ?? `${draft.items ?? 0} item${draft.items === 1 ? " was" : "s were"} sent to the master database of ${draft.destination.name}.${draft.plan.mergeStrategy === "KeepExistingItem" ? " Items that were already there were kept as they were." : ""} Publish when you’re ready.`}</p></div>}
+        <p className="mt-1">{draft.error ?? `${draft.items ?? 0} item${draft.items === 1 ? " was" : "s were"} sent to the authoring database (master) of ${draft.destination.name}.${draft.plan.mergeStrategy === "KeepExistingItem" ? " Items that were already there were kept as they were." : ""} Publish when you’re ready.`}</p></div>}
       {draft.status === "failed" && <div role="alert" className="rounded-lg bg-rose-100 p-4 text-sm text-rose-800"><p className="font-semibold">What went wrong</p><p className="mt-1">{draft.error} Check {draft.destination.name} before trying again. Failed writes aren’t retried automatically.</p></div>}
       {draft.status !== "running" && <Link href="/" onClick={resetWizard} className="inline-flex items-center gap-2 text-sm font-semibold underline-offset-4 hover:underline">Start another transfer<ArrowRight className="size-4" aria-hidden="true" /></Link>}
     </section>}
