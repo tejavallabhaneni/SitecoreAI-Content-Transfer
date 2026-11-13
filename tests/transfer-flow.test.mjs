@@ -1,8 +1,8 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { DEMO_ENVS, DEMO_PATHS, demoBackend, resetDemo, setDemoDelay } from "../src/lib/demo-sitecore.ts"
-import { chunkIsMedia, readGraphql } from "../src/lib/marketplace.ts"
-import { approvalsFor, importState, missingParents, parentPaths, planProblem, reviewPlan, runTransfer, treeFor } from "../src/lib/transfer.ts"
+import { chunkIsMedia, correlationId, readGraphql } from "../src/lib/marketplace.ts"
+import { approvalsFor, importState, knownFix, missingParents, parentPaths, planProblem, reviewPlan, runTransfer, treeFor } from "../src/lib/transfer.ts"
 
 setDemoDelay(0)
 const [DEV, STAGING, PROD] = DEMO_ENVS.map(env => env.id)
@@ -374,4 +374,21 @@ test("review looks up each shared parent once per environment", async () => {
   await reviewPlan(counting, DEV, STAGING, plan([...parents.map(p => p.path), DEMO_PATHS.missingParentPage]))
   assert.ok(calls.size > 0)
   for (const [key, count] of calls) assert.equal(count, 1, key)
+})
+
+test("a destination without Content Transfer storage stops before import, with fix steps", async () => {
+  resetDemo()
+  await assert.rejects(run(plan([DEMO_PATHS.storageError])), /HTTP 500: \{"Error":"The Azure Blob Storage connection string is invalid\."\}/)
+  assert.equal(await demoBackend.item(STAGING, DEMO_PATHS.storageError), null)
+  const fix = knownFix('xmc.contentTransfer.saveChunk answered HTTP 500: {"Error":"The Azure Blob Storage connection string is invalid."}.', "Sales")
+  assert.ok(fix && fix.steps.length === 3 && /Sales/.test(fix.summary) && /SITECORE_XmCloud_dot_TransferFilesConnectionString/.test(fix.steps[1]))
+  assert.equal(knownFix("xmc.contentTransfer.saveChunk answered HTTP 403.", "Sales"), null)
+  assert.equal(knownFix(undefined, "Sales"), null)
+})
+
+test("errors carry Sitecore's correlation ID when the response has one", () => {
+  assert.equal(correlationId({ error: {}, response: { status: 500, headers: new Headers({ "x-sc-correlation-id": "a14b4d12bd12409094fa5fa8f3a852f8" }) } }), "a14b4d12bd12409094fa5fa8f3a852f8")
+  assert.equal(correlationId({ data: { response: { status: 500, headers: { "x-sc-correlation-id": "abc12345" } } } }), "abc12345")
+  assert.equal(correlationId({ response: { status: 500, headers: new Headers() } }), "")
+  assert.equal(correlationId({ response: { status: 500, headers: new Headers({ "x-sc-correlation-id": "<script>" }) } }), "")
 })

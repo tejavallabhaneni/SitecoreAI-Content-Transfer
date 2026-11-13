@@ -67,6 +67,14 @@ function responseOf(result: unknown): { status?: number; headers?: Headers } | n
   return null
 }
 
+/** Sitecore's ID for one request (x-sc-correlation-id), which Support can trace. */
+export function correlationId(result: unknown): string {
+  const headers = responseOf(result)?.headers as Headers | Record<string, string> | undefined
+  if (!headers) return ""
+  const value = typeof (headers as Headers).get === "function" ? (headers as Headers).get("x-sc-correlation-id") : (headers as Record<string, string>)["x-sc-correlation-id"]
+  return /^[\w-]{8,64}$/.test(value ?? "") ? value as string : ""
+}
+
 const HINTS: Record<number, string> = {
   401: "SitecoreAI didn’t accept the app’s sign-in. Refresh the page and try again.",
   403: "The app isn’t allowed to do this in that environment. Check the app’s access in App Studio and that you’re an Organization Admin or Owner.",
@@ -81,7 +89,8 @@ function unwrap<T>(result: unknown, what: string): T | null {
       const status = responseOf(current)?.status ?? responseOf(result)?.status
       const said = detail(current.error)
       const hint = status ? HINTS[status] : undefined
-      throw Object.assign(new Error(`${what} ${status ? `answered HTTP ${status}` : "failed"}${said ? `: ${said}` : ""}.${hint ? ` ${hint}` : ""}`), { status })
+      const traced = correlationId(current) || correlationId(result)
+      throw Object.assign(new Error(`${what} ${status ? `answered HTTP ${status}` : "failed"}${said ? `: ${said}` : ""}.${hint ? ` ${hint}` : ""}${traced ? ` Sitecore correlation ID: ${traced}.` : ""}`), { status })
     }
     const status = record(current.response)?.status
     if (typeof status === "number" && status >= 400) throw Object.assign(new Error(`${what} answered HTTP ${status}.`), { status })
