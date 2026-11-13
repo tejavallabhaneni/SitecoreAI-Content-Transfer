@@ -8,6 +8,12 @@ const directories = execFileSync("npm", ["ls", "--omit=dev", "--parseable", "--a
 const inventory = []
 const sections = ["Content Transfer — third-party notices\n\nGenerated from installed production packages. Includes optional server/build dependencies; inclusion does not mean a package is sent to the browser. This inventory is not a legal clearance certificate.\n\nFonts: see /licenses/inter.txt and /licenses/geist-mono.txt.\n\nCan I Use data: Copyright Alexis Deveria and contributors, https://caniuse.com/ ; compressed by caniuse-lite, https://github.com/browserslist/caniuse-lite ; CC BY 4.0. The app does not modify that package's data.\n"]
 const seen = new Set()
+async function projectLicense(packageName) {
+  const directory = path.join(root, "node_modules", packageName)
+  const filename = (await readdir(directory)).find(name => /^licen[cs]e(?:\.md|\.txt)?$/i.test(name))
+  if (!filename) throw new Error(`No upstream project licence found for ${packageName}`)
+  return readFile(path.join(directory, filename), "utf8")
+}
 for (const directory of directories.sort()) {
   const pkg = JSON.parse(await readFile(path.join(directory, "package.json"), "utf8"))
   const key = `${pkg.name}@${pkg.version}`
@@ -20,11 +26,11 @@ for (const directory of directories.sort()) {
   }
   let supplement = ""
   if (!notices.length && pkg.name.startsWith("@next/")) {
-    notices.push(`--- Next.js monorepo LICENSE ---\n${await readFile(path.join(root, "node_modules/next/LICENSE.md"), "utf8")}`)
+    notices.push(`--- Next.js monorepo LICENSE ---\n${await projectLicense("next")}`)
     supplement = "https://github.com/vercel/next.js"
   }
   if (!notices.length && pkg.name === "client-only") {
-    notices.push(`--- React project LICENSE ---\n${await readFile(path.join(root, "node_modules/react/LICENSE"), "utf8")}`)
+    notices.push(`--- React project LICENSE ---\n${await projectLicense("react")}`)
     supplement = "https://github.com/facebook/react"
   }
   if (pkg.name.includes("sharp-libvips") || pkg.name === "@img/sharp-wasm32") {
