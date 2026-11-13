@@ -1,121 +1,36 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { useState } from "react"
-import {
-  ArrowLeftRight,
-  LayoutDashboard,
-  Menu,
-  Server,
-  TreePine,
-} from "lucide-react"
-
+import { useRouter } from "next/navigation"
+import { FlaskConical, ShieldCheck, X } from "lucide-react"
+import { AppLogo } from "@/components/app-logo"
 import { Button } from "@/components/ui/button"
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
-import { cn } from "@/lib/utils"
+import { leaveDemo, useSession } from "@/lib/session"
 
-const nav = [
-  { href: "/", label: "Jobs", icon: LayoutDashboard },
-  { href: "/items", label: "Items", icon: TreePine },
-  { href: "/environments", label: "Environments", icon: Server },
-]
+export function AppShell({ children }: { children: React.ReactNode }) {
+  const session = useSession()
+  const router = useRouter()
 
-function NavLinks({ onNavigate, demoMode }: { onNavigate?: () => void; demoMode: boolean }) {
-  const pathname = usePathname()
-  return (
-    <nav className="flex flex-col gap-1">
-      {(demoMode ? nav : [{ href: "/transfer", label: "Transfer workspace", icon: LayoutDashboard }]).map((item) => {
-        const active =
-          item.href === "/"
-            ? pathname === "/"
-            : pathname === item.href || pathname.startsWith(`${item.href}/`)
-        const Icon = item.icon
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={onNavigate}
-            className={cn(
-              "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-              active
-                ? "bg-sidebar-accent text-sidebar-foreground"
-                : "text-sidebar-foreground/70 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground",
-            )}
-          >
-            <Icon className="size-4" />
-            {item.label}
-          </Link>
-        )
-      })}
-    </nav>
-  )
-}
-
-function Brand() {
-  return (
-    <Link href="/" className="flex items-center gap-2.5 px-1">
-      <span className="flex size-8 items-center justify-center rounded-lg bg-teal-400 text-[#0f1c2e]">
-        <ArrowLeftRight className="size-4" />
-      </span>
-      <span className="min-w-0">
-        <span className="block truncate text-sm font-semibold tracking-tight text-sidebar-foreground">
-          SitecoreAI Transfer
-        </span>
-        <span className="block truncate text-xs text-sidebar-foreground/60">
-          Content migration
-        </span>
-      </span>
-    </Link>
-  )
-}
-
-export function AppShell({ children, demoMode }: { children: React.ReactNode; demoMode: boolean }) {
-  const [open, setOpen] = useState(false)
-
-  return (
-    <div className="flex min-h-full flex-1">
-      <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col gap-6 border-r border-sidebar-border bg-sidebar p-4 md:flex">
-        <Brand />
-        <NavLinks demoMode={demoMode} />
-        <p className="mt-auto text-xs leading-relaxed text-sidebar-foreground/50">
-          {demoMode ? "Demo data only — no SitecoreAI transfer occurs." : "Authenticated transfer drafts only — execution disabled pending preflight."}
-        </p>
-      </aside>
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex items-center gap-3 border-b bg-background/90 px-4 py-3 backdrop-blur md:hidden">
-          <Button
-            variant="outline"
-            size="icon-sm"
-            aria-label="Open navigation"
-            onClick={() => setOpen(true)}
-          >
-            <Menu />
-          </Button>
-          <Brand />
-        </header>
-
-        <Sheet open={open} onOpenChange={setOpen}>
-          <SheetContent side="left" className="bg-sidebar text-sidebar-foreground">
-            <SheetHeader>
-              <SheetTitle className="text-sidebar-foreground">
-                SitecoreAI Transfer
-              </SheetTitle>
-            </SheetHeader>
-            <div className="px-2 pb-4">
-              <NavLinks demoMode={demoMode} onNavigate={() => setOpen(false)} />
-            </div>
-          </SheetContent>
-        </Sheet>
-
-        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+  return <div className="flex min-h-full flex-1 flex-col">
+    <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-primary focus:p-3 focus:text-white">Skip to content</a>
+    <header className="sticky top-0 z-20 border-b border-white/15 bg-[#140850]/70 backdrop-blur">
+      <div className="mx-auto flex min-h-16 max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
+        <Link href="/" aria-label="Content Transfer home"><AppLogo /></Link>
+        <nav className="flex items-center gap-4 text-sm"><Link href="/about" className="text-muted-foreground hover:text-white">How it works</Link></nav>
       </div>
-    </div>
-  )
+      {session.demo && <div role="status" className="border-t border-white/15 bg-amber-100">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-2 text-xs text-amber-800 sm:px-6">
+          <span className="flex items-center gap-2"><FlaskConical className="size-4 shrink-0" aria-hidden="true" /><span><strong>Demo.</strong> Sample environments in this tab. Nothing is sent to Sitecore.</span></span>
+          <Button type="button" size="sm" variant="ghost" className="h-7 gap-1 text-amber-800 hover:bg-amber-200" onClick={() => { leaveDemo(); router.push("/") }}><X className="size-3.5" aria-hidden="true" />Leave demo</Button>
+        </div>
+      </div>}
+    </header>
+    <main id="main-content" className="flex-1 px-4 py-8 sm:px-6 sm:py-10">{children}</main>
+    <footer className="border-t border-white/15 bg-[#140850]/60">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-5 text-sm sm:px-6">
+        <span className="flex items-center gap-2"><ShieldCheck className="size-4 shrink-0" aria-hidden="true" />You review and approve every transfer.</span>
+        <Link href="/about" className="underline-offset-4 hover:underline">Independent community app · About &amp; licences</Link>
+      </div>
+    </footer>
+  </div>
 }

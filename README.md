@@ -1,70 +1,57 @@
-# SitecoreAI Content Transfer — standalone (pre-release)
+# SitecoreAI Content Transfer
 
-A Next.js application for reviewing and approving transfers of Sitecore content
-between separately authorized SitecoreAI environments.
+[Open the app](https://sitecoreai-ae-content-transfer-app.vercel.app) · [Deployment](docs/DEPLOYMENT.md)
 
-**Release status:** Not production-certified. The web app has GitHub login,
-PostgreSQL-backed jobs, preflight verification and explicit approval. A
-separate worker implements the native Content Transfer and Item Transfer API
-sequence. Live transfers require deployment credentials and **real staging
-validation**; do not use this project against production content yet.
+A simple SitecoreAI Marketplace app for copying pages and media from one SitecoreAI environment to another. It shows both environments' content trees side by side, checks every item before anything is written, and uses Sitecore's own Content Transfer API, so item IDs stay the same.
 
-## Features
+## How to use it
 
-- GitHub OAuth login, signed session cookies and allowlisted operators.
-- PostgreSQL job drafts, transfer status and progress.
-- Source and target environment configuration using server-only credentials.
-- Real preflight checks against the Authoring GraphQL API, including matching
-  destination parent-item IDs.
-- Reviewed transfers that are queued for an independently hosted worker.
-- Native API worker implementing source export, binary chunk forwarding,
-  .raif file creation and destination master import.
-- Fail-closed simulated demo endpoints in production.
+1. **Install the app in every environment.** In the Sitecore Cloud Portal, open App Studio and install Content Transfer. Give it access to each environment you want to copy between.
+2. **Open it and pick From and To.** Open Content Transfer from SitecoreAI. It lists the environments it's installed in.
+3. **Tick what to copy.** Open folders in the From tree and tick pages or media. Badges show what's **New** in To, what already **Exists**, and what has a **different ID**. The To tree shows what's there now.
+4. **Review and start.** The check shows what will happen to each item: Create, Update, Skip or Conflict, with how to fix a conflict. Approve, start, and follow the progress. Then publish in the destination through your normal workflow.
 
-### Safety restrictions
+Opened outside SitecoreAI, the app shows these steps and an offline demo with three sample environments. The demo never contacts Sitecore.
 
-- OverrideExistingTree is intentionally unavailable.
-- A completed import is **not** published content.
-- Background workers must be enabled separately; no live worker runs in Vercel.
-- Worker failures do not trigger automatic retries; operator reconciliation
-  is required before any restart of an interrupted operation.
-- Cleanup of transferred package resources and full staging integration tests
-  remain release blockers.
+## How it works
 
-## Local demo
+- SitecoreAI tells the app which environments it's installed in (`application.context` → `resourceAccess`). Every call goes through the Marketplace SDK, addressed by the environment's context ID. There are no credentials, sign-in pages or OAuth callbacks.
+- Trees and checks use the Authoring GraphQL API (`xmc.authoring.graphql`). Transfers use the Content Transfer API (`xmc.contentTransfer.*`): the source packages the items, each chunk is copied to the destination, and the destination imports the file into **master**. Media and content travel in separate transfers, and the source transfer is always removed afterwards.
+- A transfer is blocked when an item has a different ID at the same path, or a parent folder is missing or has a different ID, because those would orphan imported items. The check runs again right before the transfer starts.
+- Nothing is stored outside SitecoreAI. Plans and progress live in the current tab and clear on reload. Publishing, deleting and replacing whole trees are not available.
 
-Requires Node.js 22+ and npm.
+## Local development
 
-```bash
-git clone https://github.com/tejavallabhaneni/SitecoreAI-Content-Transfer.git
-cd SitecoreAI-Content-Transfer
+Node.js 22+ and npm:
+
+```sh
 npm ci
-cp .env.example .env.local
 npm run dev
 ```
 
-Only local development with `ENABLE_DEMO_MODE=true` shows sample transfer
-jobs. A production runtime never enables fixture-backed transfer APIs.
+Outside SitecoreAI the app runs in demo mode. To use real environments, register it as a custom app in App Studio with SitecoreAI APIs enabled, point it at your deployment, and open it from SitecoreAI.
 
-## Production setup
-
-See [Deployment guide](docs/DEPLOYMENT.md) for GitHub OAuth,
-PostgreSQL schema, server-only Sitecore credentials, worker container,
-preflight workflow and staging test requirements.
-
-```bash
+```sh
 npm run lint
 npx tsc --noEmit
-node --experimental-strip-types --test tests/*.test.mjs
-npm run build
 npm run build:worker
+node --experimental-strip-types --test tests/*.test.mjs
+node --test tests/*.test.cjs
+npm run build
 ```
 
-The `/api/health` endpoint intentionally reports not ready until the
-release gate is cleared.
+`build:worker` compiles the legacy worker modules for their contract tests. The app itself doesn't run that worker.
+
+## Validation limits
+
+Automated tests cover the review outcomes, approvals, the Content Transfer call order, media/content separation, clean-up after failures and failed imports, using the offline demo and a recording fake. A real transfer between two SitecoreAI environments through the Marketplace SDK has not been validated yet. Start with a small item in non-production environments.
+
+Keep the tab open while chunks are copied; an import already accepted by Sitecore continues on its own. Failed writes aren't retried automatically, because their outcome may be uncertain.
 
 ## Contributions
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
-This private repository has no open-source license yet. Publication requires
-code/asset ownership approval, a history secret scan and enforced reviews.
+
+## License
+
+[MIT](LICENSE). SitecoreAI and Sitecore are trademarks of Sitecore; this is an independent community app.

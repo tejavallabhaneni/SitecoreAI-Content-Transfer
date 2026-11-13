@@ -1,0 +1,143 @@
+"use client"
+
+import { useCallback, useEffect, useImperativeHandle, useRef, useState } from "react"
+import { ChevronRight, File, Folder, FolderOpen, Image as ImageIcon, LoaderCircle } from "lucide-react"
+import { Checkbox } from "@/components/ui/checkbox"
+import { cn } from "@/lib/utils"
+import type { Backend, Scope, TreeNode } from "@/lib/transfer"
+
+type Compare = "new" | "exists" | "differs"
+type Loaded = { nodes: TreeNode[]; compare: Record<string, Compare> } | { error: string }
+
+// The whole tree, as Content Editor shows it: /sitecore, its top-level folders
+// (Content, Layout, Media Library, System, Templates…) and everything below.
+const ROOT_NODES: TreeNode[] = [{ id: "root-sitecore", name: "sitecore", path: "/sitecore", template: "", hasChildren: true }]
+const normalize = (id: string) => id.toLowerCase().replace(/[{}-]/g, "")
+const badges: Record<Compare, { label: string; className: string }> = {
+  new: { label: "New", className: "bg-emerald-100 text-emerald-800" },
+  exists: { label: "Exists", className: "bg-slate-100 text-slate-800" },
+  differs: { label: "ID differs", className: "bg-rose-100 text-rose-800" },
+}
+
+/**
+ * One environment's content tree. Children load when a folder opens. With a
+ * `compareTo` environment, each item is marked New, Exists or ID differs.
+ */
+/** Lets one tree open or close a folder in another, so From and To stay in step. */
+export type TreeController = { follow(path: string, open: boolean): void }
+
+export function ContentTree({ backend, env, compareTo, selected, onToggle, onScope, onExpandChange, controllerRef, label }: {
+  backend: Backend; env: string; compareTo?: string; label: string
+  /** Selected items by lower-case path, with whether each goes alone or with its sub-items. */
+  selected?: Map<string, Scope>; onToggle?: (node: TreeNode, on: boolean) => void; onScope?: (node: TreeNode, scope: Scope) => void
+  /** Called when the person opens or closes a folder in this tree. */
+  onExpandChange?: (path: string, open: boolean) => void
+  controllerRef?: React.Ref<TreeController>
+}) {
+  const [open, setOpen] = useState<Set<string>>(() => new Set(["/sitecore", "/sitecore/content"]))
+  const [loaded, setLoaded] = useState<Record<string, Loaded>>({})
+  const requested = useRef(new Set<string>())
+
+  const load = useCallback(async (path: string) => {
+    try {
+      const nodes = await backend.children(env, path)
+      let compare: Record<string, Compare> = {}
+      if (compareTo) {
+        const others = await backend.children(compareTo, path).catch(() => [] as TreeNode[])
+        const byPath = new Map(others.map(other => [other.path.toLowerCase(), other]))
+        compare = Object.fromEntries(nodes.map(node => {
+          const match = byPath.get(node.path.toLowerCase())
+          return [node.path, !match ? "new" : normalize(match.id) === normalize(node.id) ? "exists" : "differs"]
+        }))
+      }
+      setLoaded(old => ({ ...old, [path]: { nodes, compare } }))
+    } catch (error) {
+      setLoaded(old => ({ ...old, [path]: { error: error instanceof Error ? error.message : "Couldn’t load this folder." } }))
+    }
+  }, [backend, env, compareTo])
+
+  // Load the first level once; the parent remounts this tree when environments change.
+  useEffect(() => {
+    for (const path of ["/sitecore", "/sitecore/content"]) { requested.current.add(path); void load(path) }
+  }, [load])
+
+  function setFolder(path: string, isOpen: boolean) {
+    if (isOpen && !requested.current.has(path)) { requested.current.add(path); void load(path) }
+    setOpen(old => {
+      const next = new Set(old)
+      if (isOpen) next.add(path); else next.delete(path)
+      return next
+    })
+  }
+
+  function toggleOpen(path: string) {
+    const isOpen = !open.has(path)
+    setFolder(path, isOpen)
+    onExpandChange?.(path, isOpen)
+  }
+
+  // The other tree follows: a folder that doesn't exist here just stays out of view.
+  useImperativeHandle(controllerRef, () => ({ follow: setFolder }))
+
+  function rows(nodes: TreeNode[], depth: number, compare: Record<string, Compare>): React.ReactNode {
+    return nodes.map(node => {
+      const isRoot = depth === 0
+      // /sitecore and its top-level folders are browsed, not copied as a whole.
+      const selectable = depth >= 2
+      const expanded = open.has(node.path)
+      const children = loaded[node.path]
+      const state = compare[node.path]
+      const media = node.path.toLowerCase().startsWith("/sitecore/media library")
+      const Fallback = !node.hasChildren ? (media ? ImageIcon : File) : expanded ? FolderOpen : Folder
+      const pad = depth * 20 + 6
+      return <li key={node.path} role="treeitem" aria-expanded={node.hasChildren ? expanded : undefined} aria-selected={selected?.has(node.path.toLowerCase()) || undefined}>
+        <div className={cn("group flex min-h-10 items-center gap-2 rounded-md pr-2 hover:bg-white/10", selected?.has(node.path.toLowerCase()) && "bg-white/15")} style={{ paddingLeft: pad }}>
+          {node.hasChildren
+            ? <button type="button" onClick={() => toggleOpen(node.path)} className="flex size-7 shrink-0 items-center justify-center rounded hover:bg-white/15" aria-label={`${expanded ? "Close" : "Open"} ${node.name}`}>
+                <ChevronRight className={cn("size-4 transition-transform", expanded && "rotate-90")} aria-hidden="true" /></button>
+            : <span className="size-7 shrink-0" />}
+          {onToggle && !selectable && <span className="size-4 shrink-0" aria-hidden="true" />}
+          {onToggle && selectable && <Checkbox checked={Boolean(selected?.has(node.path.toLowerCase()))} onCheckedChange={on => onToggle(node, Boolean(on))} aria-label={`Select ${node.name}`} />}
+          <ItemIcon sources={node.icons} fallback={Fallback} thumbnail={media && !node.hasChildren} />
+          <button type="button" className="min-w-0 flex-1 truncate text-left text-[15px]" onClick={() => node.hasChildren ? toggleOpen(node.path) : onToggle && selectable && onToggle(node, !selected?.has(node.path.toLowerCase()))} title={node.template ? `${node.path}\nTemplate: ${node.template}` : node.path}>{node.name}</button>
+          {node.template ? <span className="hidden max-w-[11rem] shrink-0 truncate text-xs text-muted-foreground sm:inline" title={`Template: ${node.template}`}>{node.template}</span>
+            : !isRoot && <span className="hidden shrink-0 text-xs text-rose-300 sm:inline" title="This item’s template doesn’t exist in this environment">Template missing</span>}
+          {state && <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold", badges[state].className)}>{badges[state].label}</span>}
+        </div>
+        {onScope && node.hasChildren && selected?.has(node.path.toLowerCase()) && <div className="flex flex-wrap items-center gap-2 pb-1.5 text-xs text-muted-foreground" style={{ paddingLeft: pad + 92 }}>
+          Copy <ScopeToggle compact value={selected.get(node.path.toLowerCase())!} onChange={scope => onScope(node, scope)} label={node.name} /></div>}
+        {expanded && <ul role="group">{!children
+          ? <li className="flex items-center gap-2 py-2 text-sm text-muted-foreground" style={{ paddingLeft: pad + 56 }}><LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />Loading…</li>
+          : "error" in children ? <li role="alert" className="my-1 mr-2 rounded-md bg-[#4a0a1c]/80 px-3 py-2 text-sm text-rose-300" style={{ marginLeft: pad + 36 }}>{children.error}{" "}
+              <button type="button" className="font-semibold underline underline-offset-4" onClick={() => { setLoaded(old => { const next = { ...old }; delete next[node.path]; return next }); requested.current.add(node.path); void load(node.path) }}>Try again</button></li>
+          : children.nodes.length === 0 ? <li className="py-2 text-sm text-muted-foreground" style={{ paddingLeft: pad + 56 }}>Empty</li>
+          : rows(children.nodes, depth + 1, children.compare)}</ul>}
+      </li>
+    })
+  }
+
+  return <ul role="tree" aria-label={label} className="space-y-0.5">{rows(ROOT_NODES, 0, {})}</ul>
+}
+
+/**
+ * The item's own Sitecore icon (or, for media, its thumbnail). Each URL that
+ * fails moves on to the next; when none is left, a matching glyph is drawn.
+ */
+function ItemIcon({ sources = [], fallback: Fallback, thumbnail }: { sources?: string[]; fallback: typeof File; thumbnail?: boolean }) {
+  const key = sources.join(" ")
+  const [failures, setFailures] = useState({ key: "", count: 0 })
+  const failed = failures.key === key ? failures.count : 0
+  const src = sources[failed]
+  if (!src) return <Fallback className="size-5 shrink-0 opacity-85" aria-hidden="true" />
+  // eslint-disable-next-line @next/next/no-img-element -- icons come from each environment's own host
+  return <img key={src} src={src} alt="" width={20} height={20} loading="lazy" decoding="async" className={cn("size-5 shrink-0", thumbnail ? "rounded-sm bg-white/10 object-cover" : "object-contain")} onError={() => setFailures({ key, count: failed + 1 })} />
+}
+
+/** "Item only" or "+ sub-items" for one selected item. Items without children can only go alone. */
+export function ScopeToggle({ value, onChange, disabled, label, compact }: { value: Scope; onChange: (scope: Scope) => void; disabled?: boolean; label: string; compact?: boolean }) {
+  const options: [Scope, string][] = [["SingleItem", compact ? "Item" : "Item only"], ["ItemAndDescendants", compact ? "+ Sub-items" : "With sub-items"]]
+  return <div role="radiogroup" aria-label={`What to copy for ${label}`} className="inline-flex shrink-0 rounded-md border border-white/25 p-0.5">
+    {options.map(([scope, text]) => <button key={scope} type="button" role="radio" aria-checked={value === scope} disabled={disabled && scope === "ItemAndDescendants"}
+      onClick={() => onChange(scope)} className={cn("rounded px-2.5 py-1 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40", value === scope ? "bg-brand-red text-white" : "hover:bg-white/10")}>{text}</button>)}
+  </div>
+}

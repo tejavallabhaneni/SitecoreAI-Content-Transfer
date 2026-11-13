@@ -1,8 +1,5 @@
-import { redirect } from "next/navigation"
-import { JobsDashboard } from "@/components/jobs-dashboard"
-import { demoModeEnabled } from "@/lib/security/demo-mode"
+import { TransferHome } from "@/components/transfer-home"
 
 export default function HomePage() {
-  if (!demoModeEnabled()) redirect("/transfer")
-  return <JobsDashboard />
+  return <TransferHome />
 }

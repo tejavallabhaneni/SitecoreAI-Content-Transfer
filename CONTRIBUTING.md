@@ -1,21 +1,13 @@
 # Contributing
 
-This project is currently a **development preview**, not a live SitecoreAI transfer application.
+This project is a developer preview. The public UI uses each visitor's own SitecoreAI connection and native import history; no database is required.
 
-## Local setup
+1. Use Node.js 22+ and run `npm ci`.
+2. Run `npm run dev`.
+3. Connect only non-production SitecoreAI environments that you are authorized to manage.
+4. Run `npm run lint`, `npx tsc --noEmit`, `npm run build:worker`, `node --experimental-strip-types --test tests/*.test.mjs`, `node --test tests/*.test.cjs`, and `npm run build` before submitting changes.
+5. Open a pull request with a concrete behavior description and test evidence. Distinguish mocked API checks from real tenant testing.
 
-1. Fork the repository and clone your fork.
-2. Use Node.js 22 and run `npm ci`.
-3. Copy `.env.example` to `.env.local` (development-only fixture data).
-4. Run `npm run dev` and visit http://localhost:3000.
-5. Before sending changes, run `npm run lint`, `npx tsc --noEmit`, and `npm run build`.
-6. Open a pull request from your fork. Include a description and test evidence.
-
-Commit to your own fork; do not expect direct push access to the upstream
-repository. The maintainer should configure GitHub rules requiring PR and code
-owner approval before merging.
-
-Never commit client secrets, JWTs, real customer content, private internal URLs
-or code without release authorization. Do not present simulated transfers as real.
+Never commit credentials, JWTs, real customer content, or private internal URLs. Do not add application persistence or enable destructive tree replacement/publishing as part of an unrelated change. Contributions are accepted under the project's [MIT license](LICENSE).
 
 Security reports: see [SECURITY.md](SECURITY.md).

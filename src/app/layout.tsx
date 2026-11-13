@@ -1,12 +1,12 @@
 import type { Metadata } from "next"
-import { Geist, Geist_Mono } from "next/font/google"
+import { DM_Sans, Geist_Mono } from "next/font/google"
 
 import { Providers } from "@/components/providers"
-import { demoModeEnabled } from "@/lib/security/demo-mode"
 import "./globals.css"
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// DM Sans: the geometric sans used across Sitecore's community sites.
+const dmSans = DM_Sans({
+  variable: "--font-dm-sans",
   subsets: ["latin"],
 })
 
@@ -16,9 +16,15 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: "SitecoreAI Content Transfer",
+  title: "Content Transfer for SitecoreAI",
+  applicationName: "Content Transfer for SitecoreAI",
+  icons: {
+    icon: [{ url: "/brand/content-transfer.svg", type: "image/svg+xml", sizes: "any" }],
+    shortcut: "/brand/content-transfer.svg",
+    apple: [{ url: "/brand/content-transfer-512.png", sizes: "512x512", type: "image/png" }],
+  },
   description:
-    "Transfer Sitecore content items between XM Cloud environments with AI-assisted field mapping.",
+    "Connect your own SitecoreAI environments, review native transfer history, and transfer content without an application database.",
 }
 
 export default function RootLayout({
@@ -29,12 +35,13 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${dmSans.variable} ${geistMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <body className="flex min-h-full flex-col bg-background text-foreground">
-        <Providers demoMode={demoModeEnabled()}>{children}</Providers>
+        <Providers>{children}</Providers>
       </body>
     </html>
   )
 }
+

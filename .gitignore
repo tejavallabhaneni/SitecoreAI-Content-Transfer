@@ -46,3 +46,8 @@ yarn-error.log*
 next-env.d.ts
 
 /dist-worker
+
+# Regenerated for the actual deployment platform during prebuild
+/public/THIRD_PARTY_NOTICES.txt
+/public/licenses/packages.json
+

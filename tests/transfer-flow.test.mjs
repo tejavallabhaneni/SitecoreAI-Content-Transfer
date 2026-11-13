@@ -1,0 +1,394 @@
+import test from "node:test"
+import assert from "node:assert/strict"
+import { DEMO_ENVS, DEMO_PATHS, demoBackend, resetDemo, setDemoDelay } from "../src/lib/demo-sitecore.ts"
+import { chunkIsMedia, correlationId, readGraphql } from "../src/lib/marketplace.ts"
+import { approvalsFor, importState, knownFix, missingParents, parentPaths, planProblem, reviewPlan, runTransfer, treeFor } from "../src/lib/transfer.ts"
+
+setDemoDelay(0)
+const [DEV, STAGING, PROD] = DEMO_ENVS.map(env => env.id)
+const plan = (paths, scope = "SingleItem", mergeStrategy = "KeepExistingItem") => ({ items: paths.map(path => typeof path === "string" ? { path, scope } : path), mergeStrategy })
+const approve = { approved: true, overwriteApproved: true, deleteApproved: true }
+const run = (p, from = DEV, to = STAGING, approval = approve) => runTransfer(demoBackend, from, to, p, approval, () => {})
+const outcomes = async (p, from = DEV, to = STAGING) => (await reviewPlan(demoBackend, from, to, p)).map(row => row.outcome)
+
+test.beforeEach(() => resetDemo())
+
+test("parent paths start below the root folder", () => {
+  assert.deepEqual(parentPaths("/sitecore/content/A/B/C"), ["/sitecore/content/A", "/sitecore/content/A/B"])
+  assert.deepEqual(parentPaths("/sitecore/content/A"), [])
+})
+
+test("missing parents: the parents To lacks are found, top-down, so they can be ticked too", async () => {
+  const parents = await missingParents(demoBackend, DEV, STAGING, DEMO_PATHS.missingParentPage)
+  assert.deepEqual(parents.map(p => [p.path, p.name, p.hasChildren]), [[DEMO_PATHS.newFolder, "Blog", true]])
+  assert.deepEqual(await missingParents(demoBackend, DEV, STAGING, DEMO_PATHS.newPage), [], "parents already in To aren't returned")
+  const rows = await reviewPlan(demoBackend, DEV, STAGING, plan([...parents.map(p => p.path), DEMO_PATHS.missingParentPage]))
+  assert.deepEqual(rows.map(row => row.outcome), ["create", "create"], "ticking them clears the review")
+})
+
+test("plan checks: empty, roots, duplicates, overlap, too many", () => {
+  assert.match(planProblem(plan([])), /Tick at least one/)
+  assert.match(planProblem(plan(["/sitecore/content"])), /not the folders themselves/)
+  assert.match(planProblem(plan(["/sitecore/templates"])), /not the folders themselves/)
+  assert.match(planProblem(plan(["/sitecore"])), /not the folders themselves/)
+  assert.equal(planProblem(plan(["/sitecore/templates/Project/X"])), "", "anything below the top-level folders can be copied")
+  assert.match(planProblem(plan([DEMO_PATHS.newPage, DEMO_PATHS.newPage.toUpperCase()])), /twice/)
+  assert.match(planProblem(plan([DEMO_PATHS.home, DEMO_PATHS.newPage], "ItemAndDescendants")), /already included/)
+  assert.equal(planProblem(plan([{ path: DEMO_PATHS.home, scope: "SingleItem" }, { path: DEMO_PATHS.newPage, scope: "ItemAndDescendants" }])), "", "a parent copied alone doesn't include its children")
+  assert.equal(planProblem(plan([DEMO_PATHS.home, DEMO_PATHS.newPage])), "")
+  assert.match(planProblem(plan(Array.from({ length: 51 }, (_, i) => `/sitecore/content/x${i}`))), /at most 50/)
+})
+
+test("tree: starts at /sitecore with every top-level folder", async () => {
+  const top = (await demoBackend.children(DEV, "/sitecore")).map(node => node.name)
+  assert.deepEqual(top.sort(), ["content", "layout", "media library", "system", "templates"])
+})
+
+test("templates: only the selected item's own template is reported, with its path; inherited ones are skipped", async () => {
+  const [row] = await reviewPlan(demoBackend, DEV, STAGING, plan([DEMO_PATHS.missingTemplatePage]))
+  assert.equal(row.outcome, "conflict")
+  assert.deepEqual(row.missingTemplates.map(t => [t.name, t.path, t.usedBy]), [["Landing page", DEMO_PATHS.landingTemplate, 1]])
+})
+
+test("templates: added to the same transfer, they're noted and copied first", async () => {
+  const withTemplates = plan([DEMO_PATHS.landingTemplate, DEMO_PATHS.landingBase, DEMO_PATHS.missingTemplatePage])
+  const rows = await reviewPlan(demoBackend, DEV, STAGING, withTemplates)
+  assert.deepEqual(rows.map(row => row.outcome), ["create", "create", "create"])
+  assert.deepEqual(rows[2].templatesFirst, [DEMO_PATHS.landingTemplate])
+  const order = []
+  const spy = { ...demoBackend, pollMs: 0, createTransfer: (env, id, trees) => { order.push(trees.map(t => t.itemPath.split("/").at(-1))); return demoBackend.createTransfer(env, id, trees) } }
+  await runTransfer(spy, DEV, STAGING, withTemplates, approve, () => {})
+  assert.deepEqual(order, [["Landing page", "_Landing base"], ["Black Friday"]], "templates in their own transfer, first")
+  assert.ok(await demoBackend.item(STAGING, DEMO_PATHS.missingTemplatePage))
+})
+
+test("templates: once the item's template is in To, its inherited templates don't block it", async () => {
+  await run(plan([DEMO_PATHS.landingTemplate]))
+  const [row] = await reviewPlan(demoBackend, DEV, STAGING, plan([DEMO_PATHS.missingTemplatePage]))
+  assert.equal(row.missingTemplates, undefined)
+  assert.equal(row.outcome, "create")
+})
+
+test("tree: first level of Content, with children flags", async () => {
+  const nodes = await demoBackend.children(DEV, "/sitecore/content")
+  assert.deepEqual(nodes.map(n => n.name), ["Harbor and Pine"])
+  assert.equal(nodes[0].hasChildren, true)
+  const leaves = await demoBackend.children(DEV, `${DEMO_PATHS.home}/Campaigns`)
+  assert.ok(leaves.every(n => n.hasChildren === false))
+})
+
+test("tree: environments differ the way the scenarios need", async () => {
+  await assert.rejects(demoBackend.children(STAGING, DEMO_PATHS.newFolder), /doesn’t exist/)
+  assert.equal(await demoBackend.item(PROD, DEMO_PATHS.existingPage), null)
+  const [dev, staging] = await Promise.all([demoBackend.item(DEV, DEMO_PATHS.conflictPage), demoBackend.item(STAGING, DEMO_PATHS.conflictPage)])
+  assert.notEqual(dev.id, staging.id)
+})
+
+test("review: create, skip, update, and both conflict kinds", async () => {
+  assert.deepEqual(await outcomes(plan([DEMO_PATHS.newPage, DEMO_PATHS.existingPage, DEMO_PATHS.conflictPage, DEMO_PATHS.missingParentPage])), ["create", "keep", "conflict", "conflict"])
+  assert.deepEqual(await outcomes(plan([DEMO_PATHS.existingPage], "SingleItem", "OverrideExistingItem")), ["update"])
+  const [conflict, parent] = await reviewPlan(demoBackend, DEV, STAGING, plan([DEMO_PATHS.conflictPage, DEMO_PATHS.missingParentPage]))
+  assert.match(conflict.message, /different Sitecore item ID/)
+  assert.match(parent.message, /Missing required parent.*\/Blog$/)
+})
+
+test("review: same environment twice is refused", async () => {
+  await assert.rejects(reviewPlan(demoBackend, DEV, DEV, plan([DEMO_PATHS.newPage])), /two different/)
+})
+
+test("run: needs approval, and overwrite approval when overwriting", async () => {
+  await assert.rejects(run(plan([DEMO_PATHS.newPage]), DEV, STAGING, { approved: false, overwriteApproved: false }), /Approve/)
+  await assert.rejects(run(plan([DEMO_PATHS.existingPage], "SingleItem", "OverrideExistingItem"), DEV, STAGING, { approved: true, overwriteApproved: false }), /Approve/)
+})
+
+test("run: re-checks and refuses a conflict before writing", async () => {
+  await assert.rejects(run(plan([DEMO_PATHS.conflictPage])), /different Sitecore item ID/)
+})
+
+test("run: creates a new page and reports every phase", async () => {
+  const phases = []
+  const result = await runTransfer(demoBackend, DEV, STAGING, plan([DEMO_PATHS.newPage]), approve, p => phases.push(p.phase))
+  assert.equal(result.items, 1)
+  assert.deepEqual([...new Set(phases)], [1, 2, 3, 4, 5])
+  assert.equal((await demoBackend.item(STAGING, DEMO_PATHS.newPage)).path, DEMO_PATHS.newPage)
+  assert.deepEqual(await outcomes(plan([DEMO_PATHS.newPage])), ["keep"], "a second review sees it as existing")
+})
+
+test("run: keep-existing leaves the destination version; overwrite replaces it", async () => {
+  const before = await demoBackend.item(PROD, DEMO_PATHS.home)
+  await run(plan([DEMO_PATHS.existingPage]), DEV, STAGING)
+  assert.ok(await demoBackend.item(STAGING, DEMO_PATHS.existingPage))
+  await run(plan([DEMO_PATHS.existingPage]), DEV, PROD)
+  assert.ok(await demoBackend.item(PROD, DEMO_PATHS.existingPage), "missing in Production, so it is created")
+  assert.equal((await demoBackend.item(PROD, DEMO_PATHS.home)).id, before.id)
+})
+
+test("run: a folder with everything under it fixes the missing parent", async () => {
+  const result = await run(plan([DEMO_PATHS.newFolder], "ItemAndDescendants"))
+  assert.equal(result.items, 2)
+  assert.deepEqual(await outcomes(plan([DEMO_PATHS.missingParentPage])), ["keep"])
+})
+
+test("run: content and media travel separately", async () => {
+  const media = []
+  const spy = { ...demoBackend, pollMs: 0, saveChunk: (...args) => { media.push(args[5]); return demoBackend.saveChunk(...args) } }
+  Object.defineProperty(spy, "pollMs", { value: 0 })
+  await runTransfer(spy, DEV, STAGING, plan([DEMO_PATHS.newPage, DEMO_PATHS.newImage]), approve, () => {})
+  assert.deepEqual([...new Set(media)].sort(), [false, true])
+  assert.ok(await demoBackend.item(STAGING, DEMO_PATHS.newImage))
+})
+
+// A backend whose chunks report (or don't report) IsMedia, and whose destination
+// accepts a chunk only with the right flag.
+function chunkFake({ flagged, rightFlag = true, failWith }) {
+  const saves = []
+  const fake = {
+    pollMs: 0,
+    children: async () => [],
+    item: async (env, path) => ({ id: `id-${path}`, path }),
+    createTransfer: async () => {},
+    transferStatus: async () => ({ state: "Completed", chunkSets: [{ chunkSetId: "set", chunkCount: 1, totalItemCount: 1 }] }),
+    getChunk: async () => (flagged === undefined ? { data: new Blob(["x"]) } : { data: new Blob(["x"]), isMedia: flagged }),
+    saveChunk: async (env, id, set, n, data, isMedia) => {
+      saves.push(isMedia)
+      if (failWith) throw Object.assign(new Error(`HTTP ${failWith}`), { status: failWith })
+      if (isMedia !== rightFlag) throw Object.assign(new Error("xmc.contentTransfer.saveChunk answered HTTP 400."), { status: 400 })
+    },
+    completeChunkSet: async () => "f.raif",
+    deleteTransfer: async () => {},
+    consumeFile: async () => {},
+    blobState: async () => ({ state: "Transferred" }),
+  }
+  return { fake, saves }
+}
+
+test("chunks: the IsMedia flag from the source is sent as-is, even for a content path", async () => {
+  const { fake, saves } = chunkFake({ flagged: true, rightFlag: true })
+  await runTransfer(fake, "A", "B", plan(["/sitecore/content/S/P"]), approve, () => {}, () => "t")
+  assert.deepEqual(saves, [true])
+})
+
+test("chunks: with no flag from the source, a rejected chunk is retried once with the other value", async () => {
+  const { fake, saves } = chunkFake({ flagged: undefined, rightFlag: true })
+  await runTransfer(fake, "A", "B", plan(["/sitecore/content/S/P"]), approve, () => {}, () => "t")
+  assert.deepEqual(saves, [false, true])
+})
+
+test("chunks: no retry when the source gave the flag, or when the error isn't a rejection", async () => {
+  const flagged = chunkFake({ flagged: false, rightFlag: true })
+  await assert.rejects(runTransfer(flagged.fake, "A", "B", plan(["/sitecore/content/S/P"]), approve, () => {}, () => "t"), /HTTP 400/)
+  assert.deepEqual(flagged.saves, [false])
+  const denied = chunkFake({ flagged: undefined, failWith: 403 })
+  await assert.rejects(runTransfer(denied.fake, "A", "B", plan(["/sitecore/content/S/P"]), approve, () => {}, () => "t"), /HTTP 403/)
+  assert.deepEqual(denied.saves, [false])
+})
+
+test("chunks: IsMedia is read from Content-Disposition", () => {
+  assert.equal(chunkIsMedia("attachment; filename=0; IsMedia=True"), true)
+  assert.equal(chunkIsMedia('attachment; filename="0.bin"; isMedia="false"'), false)
+  assert.equal(chunkIsMedia("attachment; filename=0"), undefined)
+  assert.equal(chunkIsMedia(null), undefined)
+})
+
+test("run: a failed import is reported, and nothing is written", async () => {
+  await assert.rejects(run(plan([DEMO_PATHS.failingImport])), /could not import.*Broken import/)
+  assert.equal(await demoBackend.item(STAGING, DEMO_PATHS.failingImport), null)
+})
+
+test("run: follows the Content Transfer call order and always cleans up the source", async () => {
+  const calls = []
+  const fake = {
+    pollMs: 0,
+    children: async () => [],
+    item: async (env, path) => ({ id: `id-${path}`, path }),
+    createTransfer: async (env) => { calls.push(`create@${env}`) },
+    transferStatus: async () => ({ state: "Completed", chunkSets: [{ chunkSetId: "set", chunkCount: 2, totalItemCount: 3 }] }),
+    getChunk: async (env, id, set, n) => { calls.push(`get${n}@${env}`); return { data: new Blob(["x"]) } },
+    saveChunk: async (env, id, set, n) => { calls.push(`save${n}@${env}`); if (n === 1 && fake.failSave) throw new Error("disk full") },
+    completeChunkSet: async (env) => { calls.push(`complete@${env}`); return "f.raif" },
+    deleteTransfer: async (env) => { calls.push(`delete@${env}`) },
+    consumeFile: async (env) => { calls.push(`consume@${env}`) },
+    blobState: async () => ({ state: "Transferred" }),
+  }
+  await runTransfer(fake, "A", "B", plan(["/sitecore/content/S/P"]), approve, () => {}, () => "t1")
+  assert.deepEqual(calls, ["create@A", "get0@A", "save0@B", "get1@A", "save1@B", "complete@B", "delete@A", "consume@B"])
+  calls.length = 0
+  fake.failSave = true
+  await assert.rejects(runTransfer(fake, "A", "B", plan(["/sitecore/content/S/P"]), approve, () => {}, () => "t2"), /disk full/)
+  assert.ok(calls.includes("delete@A"), "the source transfer is removed even after a failure")
+  assert.ok(!calls.includes("consume@B"), "nothing is imported after a failed copy")
+})
+
+test("run: the source transfer is removed when packaging fails or its status can't be read", async () => {
+  for (const status of [async () => ({ state: "Failed", chunkSets: [] }), async () => { throw new Error("status unavailable") }]) {
+    const calls = []
+    const fake = {
+      pollMs: 0,
+      children: async () => [],
+      item: async (env, path) => ({ id: `id-${path}`, path }),
+      createTransfer: async () => { calls.push("create") },
+      transferStatus: status,
+      deleteTransfer: async () => { calls.push("delete") },
+    }
+    await assert.rejects(runTransfer(fake, "A", "B", plan(["/sitecore/content/S/P"]), approve, () => {}, () => "t3"))
+    assert.deepEqual(calls, ["create", "delete"])
+  }
+})
+
+test("run: overwrite of an all-new plan runs once overwrite is approved", async () => {
+  const result = await run(plan([DEMO_PATHS.newPage], "SingleItem", "OverrideExistingItem"))
+  assert.equal(result.items, 1)
+})
+
+test("options: tree replacement applies to items with sub-items; single items are overwritten", () => {
+  assert.equal(treeFor({ path: "/a", scope: "ItemAndDescendants" }, "OverrideExistingTree").mergeStrategy, "OverrideExistingTree")
+  assert.equal(treeFor({ path: "/a", scope: "SingleItem" }, "OverrideExistingTree").mergeStrategy, "OverrideExistingItem")
+  assert.deepEqual(approvalsFor(plan(["/a"])), { overwrite: false, delete: false })
+  assert.deepEqual(approvalsFor(plan(["/a"], "SingleItem", "OverrideExistingItem")), { overwrite: true, delete: false })
+  assert.deepEqual(approvalsFor(plan(["/a"], "SingleItem", "OverrideExistingTree")), { overwrite: true, delete: false })
+  assert.deepEqual(approvalsFor(plan(["/a"], "ItemAndDescendants", "OverrideExistingTree")), { overwrite: true, delete: true })
+})
+
+test("review: replacing a tree lists exactly what it would delete", async () => {
+  const [row] = await reviewPlan(demoBackend, DEV, STAGING, plan([DEMO_PATHS.products], "ItemAndDescendants", "OverrideExistingTree"))
+  assert.equal(row.outcome, "replace")
+  assert.deepEqual(row.removes, [DEMO_PATHS.extraInTo])
+})
+
+test("run: replacing a tree needs the delete approval, then removes extra items", async () => {
+  const replace = plan([DEMO_PATHS.products], "ItemAndDescendants", "OverrideExistingTree")
+  await assert.rejects(run(replace, DEV, STAGING, { approved: true, overwriteApproved: true, deleteApproved: false }), /Approve/)
+  assert.ok(await demoBackend.item(STAGING, DEMO_PATHS.extraInTo), "nothing deleted before approval")
+  const result = await run(replace)
+  assert.equal(result.items, 3, "Products and its two products")
+  assert.equal(await demoBackend.item(STAGING, DEMO_PATHS.extraInTo), null, "Old parka is gone")
+  assert.ok(await demoBackend.item(STAGING, `${DEMO_PATHS.products}/Trail jacket`))
+})
+
+test("run: overwrite with sub-items replaces existing items but deletes nothing", async () => {
+  await run(plan([DEMO_PATHS.products], "ItemAndDescendants", "OverrideExistingItem"))
+  assert.ok(await demoBackend.item(STAGING, DEMO_PATHS.extraInTo), "Old parka stays")
+})
+
+test("run: per-item scope — a folder alone vs with its sub-items", async () => {
+  const alone = await run(plan([{ path: DEMO_PATHS.newFolder, scope: "SingleItem" }]))
+  assert.equal(alone.items, 1)
+  assert.equal(await demoBackend.item(STAGING, DEMO_PATHS.missingParentPage), null, "the post under it wasn't copied")
+  resetDemo()
+  const mixed = await run(plan([{ path: DEMO_PATHS.newFolder, scope: "ItemAndDescendants" }, { path: DEMO_PATHS.newPage, scope: "SingleItem" }]))
+  assert.equal(mixed.items, 3)
+  assert.ok(await demoBackend.item(STAGING, DEMO_PATHS.missingParentPage))
+  assert.ok(await demoBackend.item(STAGING, DEMO_PATHS.newPage))
+})
+
+test("review: with sub-items, each sub-item says whether it will be added", async () => {
+  const [blog] = await reviewPlan(demoBackend, DEV, STAGING, plan([DEMO_PATHS.newFolder], "ItemAndDescendants"))
+  assert.equal(blog.outcome, "create")
+  assert.deepEqual(blog.subItems, [{ path: DEMO_PATHS.missingParentPage, state: "new" }])
+  const [products] = await reviewPlan(demoBackend, DEV, STAGING, plan([DEMO_PATHS.products], "ItemAndDescendants"))
+  assert.deepEqual(products.subItems.map(item => item.state), ["exists", "exists"])
+  const [single] = await reviewPlan(demoBackend, DEV, STAGING, plan([DEMO_PATHS.products]))
+  assert.equal(single.subItems, undefined, "an item copied alone lists no sub-items")
+})
+
+test("review: a template missing in To blocks the item, including one used only by a sub-item", async () => {
+  const [page] = await reviewPlan(demoBackend, DEV, STAGING, plan([DEMO_PATHS.missingTemplatePage]))
+  assert.equal(page.outcome, "conflict")
+  assert.match(page.message, /^Template missing in the destination: Landing page$/)
+  const [campaigns] = await reviewPlan(demoBackend, DEV, STAGING, plan([`${DEMO_PATHS.home}/Campaigns`], "ItemAndDescendants"))
+  assert.equal(campaigns.outcome, "conflict")
+  assert.deepEqual(campaigns.missingTemplates.map(t => [t.name, t.usedBy]), [["Landing page", 1]])
+  const [alone] = await reviewPlan(demoBackend, DEV, STAGING, plan([`${DEMO_PATHS.home}/Campaigns`]))
+  assert.equal(alone.outcome, "keep", "the folder alone doesn't use that template")
+})
+
+test("review: a different item at a sub-item's path is reported", async () => {
+  const child = (env, id) => ({ id, name: "Teaser", path: "/sitecore/content/S/P/Teaser", template: "Page", templateId: "t1", hasChildren: false })
+  const fake = {
+    pollMs: 0, templateInfo: async (env, id) => ({ id, path: `/sitecore/templates/${id}`, name: id, baseIds: [] }),
+    item: async (env, path) => ({ id: `id-${path}`, path, templateId: "t1", templateName: "Page" }),
+    children: async (env, path) => path === "/sitecore/content/S/P" ? [child(env, env === "A" ? "from-id" : "other-id")] : [],
+  }
+  const [row] = await reviewPlan(fake, "A", "B", plan(["/sitecore/content/S/P"], "ItemAndDescendants"))
+  assert.deepEqual(row.subItems, [{ path: "/sitecore/content/S/P/Teaser", state: "differs" }])
+})
+
+test("parents: a missing parent is listed, and adding it to the transfer resolves it", async () => {
+  const [row] = await reviewPlan(demoBackend, DEV, STAGING, plan([DEMO_PATHS.missingParentPage]))
+  assert.equal(row.outcome, "conflict")
+  assert.deepEqual(row.missingParents, [DEMO_PATHS.newFolder])
+  const both = plan([DEMO_PATHS.missingParentPage, DEMO_PATHS.newFolder])
+  assert.deepEqual((await reviewPlan(demoBackend, DEV, STAGING, both)).map(r => r.outcome), ["create", "create"])
+  const order = []
+  const spy = { ...demoBackend, pollMs: 0, createTransfer: (env, id, trees) => { order.push(trees.map(t => t.itemPath.split("/").at(-1))); return demoBackend.createTransfer(env, id, trees) } }
+  await runTransfer(spy, DEV, STAGING, both, approve, () => {})
+  assert.deepEqual(order, [["Blog", "Welcome post"]], "parent before child")
+  assert.ok(await demoBackend.item(STAGING, DEMO_PATHS.missingParentPage))
+})
+
+test("import states", () => {
+  assert.equal(importState({ state: "Processing" }), "running")
+  assert.equal(importState({ state: "Transferred" }), "done")
+  assert.equal(importState({ state: "TransferredWithErrors" }), "partial")
+  assert.equal(importState({ state: "Error", error: "BlobNotFound" }), "done")
+  assert.equal(importState({ state: "Error", error: "boom" }), "failed")
+})
+
+test("templates: a template the lookup can't find even in From is not reported missing", async () => {
+  const fake = {
+    pollMs: 0,
+    item: async (env, path) => ({ id: `id-${path}`, path, templateId: "unlookupable", templateName: "Headless Tenant" }),
+    children: async () => [],
+    templateInfo: async () => null,
+  }
+  const [row] = await reviewPlan(fake, "A", "B", plan(["/sitecore/content/S/P"]))
+  assert.notEqual(row.outcome, "conflict")
+})
+
+test("conflicts name the folder that causes them", async () => {
+  const [own] = await reviewPlan(demoBackend, DEV, STAGING, plan([DEMO_PATHS.conflictPage]))
+  assert.equal(own.idConflictAt, DEMO_PATHS.conflictPage)
+  const fake = {
+    pollMs: 0, templateInfo: async () => null, children: async () => [],
+    item: async (env, path) => ({ id: path.endsWith("/Allied") && env === "B" ? "other" : `id-${path}`, path }),
+  }
+  const [child] = await reviewPlan(fake, "A", "B", plan(["/sitecore/templates/Feature/Allied/List"]))
+  assert.equal(child.idConflictAt, "/sitecore/templates/Feature/Allied")
+})
+
+test("a failed GraphQL request is an error, not a missing item", () => {
+  assert.deepEqual(readGraphql({ data: { item: null } }), { item: null, errors: [] })
+  assert.deepEqual(readGraphql({ data: { data: { item: { itemId: "1" } } } }), { item: { itemId: "1" }, errors: [] })
+  assert.deepEqual(readGraphql({ errors: [{ message: "Bad query" }], data: null }), { item: null, errors: ["Bad query"] })
+  assert.match(readGraphql({ error: {}, response: { status: 429 } }).failure, /HTTP 429/)
+  assert.match(readGraphql({ data: { error: { message: "Gateway timeout" }, response: { status: 504 } } }).failure, /HTTP 504: Gateway timeout/)
+  assert.match(readGraphql({ data: {} }).failure, /no data/)
+  assert.match(readGraphql(undefined).failure, /no data/)
+})
+
+test("review looks up each shared parent once per environment", async () => {
+  resetDemo()
+  const calls = new Map()
+  const counting = { ...demoBackend, item(env, path) { const key = `${env} ${path.toLowerCase()}`; calls.set(key, (calls.get(key) ?? 0) + 1); return demoBackend.item(env, path) } }
+  const parents = await missingParents(demoBackend, DEV, STAGING, DEMO_PATHS.missingParentPage)
+  await reviewPlan(counting, DEV, STAGING, plan([...parents.map(p => p.path), DEMO_PATHS.missingParentPage]))
+  assert.ok(calls.size > 0)
+  for (const [key, count] of calls) assert.equal(count, 1, key)
+})
+
+test("a destination without Content Transfer storage stops before import, with fix steps", async () => {
+  resetDemo()
+  await assert.rejects(run(plan([DEMO_PATHS.storageError])), /HTTP 500: \{"Error":"The Azure Blob Storage connection string is invalid\."\}/)
+  assert.equal(await demoBackend.item(STAGING, DEMO_PATHS.storageError), null)
+  const fix = knownFix('xmc.contentTransfer.saveChunk answered HTTP 500: {"Error":"The Azure Blob Storage connection string is invalid."}.', "Sales")
+  assert.ok(fix && fix.steps.length === 3 && /Sales/.test(fix.summary) && /SITECORE_XmCloud_dot_TransferFilesConnectionString/.test(fix.steps[1]))
+  assert.equal(knownFix("xmc.contentTransfer.saveChunk answered HTTP 403.", "Sales"), null)
+  assert.equal(knownFix(undefined, "Sales"), null)
+})
+
+test("errors carry Sitecore's correlation ID when the response has one", () => {
+  assert.equal(correlationId({ error: {}, response: { status: 500, headers: new Headers({ "x-sc-correlation-id": "a14b4d12bd12409094fa5fa8f3a852f8" }) } }), "a14b4d12bd12409094fa5fa8f3a852f8")
+  assert.equal(correlationId({ data: { response: { status: 500, headers: { "x-sc-correlation-id": "abc12345" } } } }), "abc12345")
+  assert.equal(correlationId({ response: { status: 500, headers: new Headers() } }), "")
+  assert.equal(correlationId({ response: { status: 500, headers: new Headers({ "x-sc-correlation-id": "<script>" }) } }), "")
+})
