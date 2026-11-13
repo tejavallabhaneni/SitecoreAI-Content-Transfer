@@ -1,80 +1,36 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { useState, useSyncExternalStore } from "react"
-import { ArrowUpRight, ChevronRight, CircleHelp, FolderTree, LayoutDashboard, Menu, Plus, Server, ShieldCheck } from "lucide-react"
-import { DemoBanner } from "@/components/demo-mode"
+import { useRouter } from "next/navigation"
+import { FlaskConical, ShieldCheck, X } from "lucide-react"
 import { AppLogo } from "@/components/app-logo"
-import { connectionRevision, isConnected, isDemo, serverRevision, subscribeConnection } from "@/lib/browser-session"
 import { Button } from "@/components/ui/button"
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { cn } from "@/lib/utils"
-
-const nav = [
-  { href: "/", label: "Overview", icon: LayoutDashboard },
-  { href: "/jobs/new", label: "New transfer", icon: Plus },
-  { href: "/items", label: "Content browser", icon: FolderTree },
-  { href: "/environments", label: "Connections", icon: Server },
-]
-
-function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
-  const pathname = usePathname()
-  return <nav aria-label="Main navigation" className="flex flex-col gap-1">{nav.map(item => {
-    const active = item.href === "/" ? pathname === "/" : pathname === item.href
-    const Icon = item.icon
-    return <Link key={item.href} href={item.href} onClick={onNavigate} aria-current={active ? "page" : undefined}
-      className={cn("flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-colors", active ? "relative bg-brand-tint text-brand-ink before:absolute before:inset-y-3 before:left-0 before:w-0.5 before:rounded-full before:bg-brand-red" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
-      <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg", active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground")}><Icon className="size-4" aria-hidden="true" /></span>{item.label}
-    </Link>
-  })}</nav>
-}
-
-function Brand() {
-  return <Link href="/" className="flex items-center gap-3" aria-label="Content Transfer for SitecoreAI home">
-    <AppLogo />
-  </Link>
-}
+import { leaveDemo, useSession } from "@/lib/session"
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const [open, setOpen] = useState(false)
-  useSyncExternalStore(subscribeConnection, connectionRevision, serverRevision)
-  const connected = isConnected()
-  const demo = isDemo()
-  const pathname = usePathname()
-  const currentPage = pathname === "/about" ? "About & licences" : nav.find(item => item.href === pathname)?.label ?? "Review transfer"
+  const session = useSession()
+  const router = useRouter()
 
-  return <div className="flex min-h-full flex-1">
+  return <div className="flex min-h-full flex-1 flex-col">
     <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-primary focus:p-3 focus:text-white">Skip to content</a>
-    <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r bg-sidebar md:flex">
-      <div className="relative flex h-20 items-center border-b bg-card px-5"><Brand /></div>
-      <div className="px-3 pt-4"><p className="mb-3 px-3 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Workspace</p><NavLinks /></div>
-      <div className="mt-auto space-y-4 px-5 py-6">
-        <Link href="/environments#setup" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-primary"><CircleHelp className="size-4" />Help &amp; setup</Link>
-        <a href="https://portal.sitecorecloud.io/" target="_blank" rel="noreferrer" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-primary">Sitecore Cloud Portal<ArrowUpRight className="size-3.5" /></a>
+    <header className="sticky top-0 z-20 border-b border-white/15 bg-[#140850]/70 backdrop-blur">
+      <div className="mx-auto flex min-h-16 max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
+        <Link href="/" aria-label="Content Transfer home"><AppLogo /></Link>
+        <nav className="flex items-center gap-4 text-sm"><Link href="/about" className="text-muted-foreground hover:text-white">How it works</Link></nav>
       </div>
-    </aside>
-    <div className="flex min-w-0 flex-1 flex-col">
-      <div className="sticky top-0 z-20">
-      <span className="brand-gradient block h-1" aria-hidden="true" />
-      <header className="flex min-h-16 items-center justify-between gap-3 border-b bg-card/90 px-4 backdrop-blur sm:px-7">
-        <div className="flex min-w-0 items-center gap-3">
-          <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open navigation" onClick={() => setOpen(true)}><Menu /></Button>
-          <div className="md:hidden"><Brand /></div>
-          <div className="hidden items-center gap-2 text-sm md:flex"><span className="text-muted-foreground">Content Transfer</span><ChevronRight className="size-3.5 text-muted-foreground" /><span className="font-medium">{currentPage}</span></div>
+      {session.demo && <div role="status" className="border-t border-white/15 bg-amber-100">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-2 text-xs text-amber-800 sm:px-6">
+          <span className="flex items-center gap-2"><FlaskConical className="size-4 shrink-0" aria-hidden="true" /><span><strong>Demo.</strong> Sample environments in this tab. Nothing is sent to Sitecore.</span></span>
+          <Button type="button" size="sm" variant="ghost" className="h-7 gap-1 text-amber-800 hover:bg-amber-200" onClick={() => { leaveDemo(); router.push("/") }}><X className="size-3.5" aria-hidden="true" />Leave demo</Button>
         </div>
-        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-        <Link href="/environments" className={cn("inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium", demo ? "bg-amber-50 text-amber-900" : connected ? "bg-emerald-50 text-emerald-800" : "bg-muted text-muted-foreground")}>
-          <span className={cn("size-1.5 rounded-full", demo ? "bg-amber-500" : connected ? "bg-emerald-600" : "bg-gray-400")} />{demo ? "Demo" : connected ? "Connected" : <><span className="sm:hidden">Connect</span><span className="hidden sm:inline">Not connected</span></>}
-        </Link></div>
-      </header>
-      <DemoBanner />
+      </div>}
+    </header>
+    <main id="main-content" className="flex-1 px-4 py-8 sm:px-6 sm:py-10">{children}</main>
+    <footer className="border-t border-white/15 bg-[#140850]/60">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-5 text-sm sm:px-6">
+        <span className="flex items-center gap-2"><ShieldCheck className="size-4 shrink-0" aria-hidden="true" />You review and approve every transfer.</span>
+        <Link href="/about" className="underline-offset-4 hover:underline">Independent community app · About &amp; licences</Link>
       </div>
-      <Sheet open={open} onOpenChange={setOpen}><SheetContent side="left" className="bg-card">
-        <SheetHeader><SheetTitle><AppLogo /></SheetTitle></SheetHeader><div className="px-3"><NavLinks onNavigate={() => setOpen(false)} /></div>
-      </SheetContent></Sheet>
-      <main id="main-content" className="flex-1 px-4 py-7 sm:px-7 sm:py-9 lg:px-10">{children}</main>
-      <footer className="brand-gradient flex flex-wrap items-center justify-between gap-3 px-4 py-6 text-sm text-white sm:px-7 lg:px-10"><span className="flex items-center gap-2"><ShieldCheck className="size-4 shrink-0 text-white" aria-hidden="true" />You review and approve every transfer.</span><Link href="/about" className="rounded-sm underline-offset-4 hover:underline">Independent community tool · About &amp; licences</Link></footer>
-    </div>
+    </footer>
   </div>
 }

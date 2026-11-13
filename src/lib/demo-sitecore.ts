@@ -1,15 +1,10 @@
-// Offline demo: an in-memory imitation of the SitecoreAI endpoints this app
-// calls. It never makes a network request and never sees real credentials.
-// Paths and IDs are fictional sample content ("Harbor and Pine").
+// Offline demo: three sample SitecoreAI environments held in memory. It never
+// makes a network request. Paths and IDs are fictional ("Harbor and Pine").
+// Chunks carry the actual items, so an import really changes the destination.
 
-import type { Connections, HistoryRecord, NativeStatus, Plan } from "./sitecore/public-transfer"
+import type { Backend, DataTree, Env, TreeNode } from "./transfer"
 
-export const DEMO_CONNECTIONS: Connections = {
-  source: { baseUrl: "https://demo-source.sitecore-sample.invalid", accessToken: "demo-token-not-a-secret" },
-  destination: { baseUrl: "https://demo-destination.sitecore-sample.invalid", accessToken: "demo-token-not-a-secret" },
-}
-
-type Item = { itemId: string; name: string; path: string; template: string; fields: string[] }
+type Item = { id: string; name: string; path: string; template: string }
 
 const SITE = "/sitecore/content/Harbor and Pine"
 const HOME = `${SITE}/Website/Home`
@@ -27,216 +22,148 @@ export const DEMO_PATHS = {
   newImage: `${MEDIA}/Images/Hero spring`,
 } as const
 
-const page = ["Title", "Summary", "Body"]
-let counter = 0
-const guid = (seed: number) => `0a1b2c3d-${(4000 + seed).toString(16).padStart(4, "0")}-4e5f-8a9b-${(seed * 7919).toString(16).padStart(12, "0")}`
+export const DEMO_ENVS: Env[] = [
+  { id: "demo-dev", name: "Development (sample)" },
+  { id: "demo-staging", name: "Staging (sample)" },
+  { id: "demo-prod", name: "Production (sample)" },
+]
 
-function tree(): Item[] {
-  counter = 0
-  const item = (path: string, template: string, fields: string[] = []): Item => ({ itemId: guid(++counter), name: path.split("/").at(-1)!, path, template, fields })
+const guid = (seed: number) => `0a1b2c3d-${(4000 + seed).toString(16).padStart(4, "0")}-4e5f-8a9b-${(seed * 7919).toString(16).padStart(12, "0")}`
+const key = (path: string) => path.toLowerCase()
+
+function fullTree(): Item[] {
+  let counter = 0
+  const item = (path: string, template: string): Item => ({ id: guid(++counter), name: path.split("/").at(-1)!, path, template })
   return [
-    item("/sitecore/content", "Main section"),
-    item(SITE, "Headless Tenant"),
-    item(`${SITE}/Website`, "Headless Site"),
-    item(HOME, "Page", page),
-    item(`${HOME}/About us`, "Page", page),
-    item(`${HOME}/Campaigns`, "Folder"),
-    item(DEMO_PATHS.newPage, "Campaign page", [...page, "Start date"]),
-    item(DEMO_PATHS.existingPage, "Campaign page", [...page, "Start date"]),
-    item(`${HOME}/Products`, "Page", page),
-    item(`${HOME}/Products/Trail jacket`, "Product page", [...page, "Price", "SKU"]),
-    item(`${HOME}/Products/Harbor boots`, "Product page", [...page, "Price", "SKU"]),
-    item(DEMO_PATHS.conflictPage, "Page", page),
-    item(DEMO_PATHS.newFolder, "Folder"),
-    item(DEMO_PATHS.missingParentPage, "Article page", [...page, "Author"]),
-    item(DEMO_PATHS.failingImport, "Page", page),
-    item(`${SITE}/Website/Data`, "Folder"),
-    item(`${SITE}/Website/Data/Navigation`, "Navigation", ["Links"]),
-    item("/sitecore/media library", "Main section"),
-    item("/sitecore/media library/Project", "Media folder"),
-    item(MEDIA, "Media folder"),
-    item(`${MEDIA}/Images`, "Media folder"),
-    item(DEMO_PATHS.newImage, "Jpeg", ["Alt", "Width", "Height"]),
-    item(`${MEDIA}/Images/Store front`, "Jpeg", ["Alt", "Width", "Height"]),
+    item("/sitecore/content", "Main section"), item(SITE, "Headless Tenant"), item(`${SITE}/Website`, "Headless Site"),
+    item(HOME, "Page"), item(`${HOME}/About us`, "Page"), item(`${HOME}/Campaigns`, "Folder"),
+    item(DEMO_PATHS.newPage, "Campaign page"), item(DEMO_PATHS.existingPage, "Campaign page"),
+    item(`${HOME}/Products`, "Page"), item(`${HOME}/Products/Trail jacket`, "Product page"), item(`${HOME}/Products/Harbor boots`, "Product page"),
+    item(DEMO_PATHS.conflictPage, "Page"), item(DEMO_PATHS.newFolder, "Folder"), item(DEMO_PATHS.missingParentPage, "Article page"),
+    item(DEMO_PATHS.failingImport, "Page"), item(`${SITE}/Website/Data`, "Folder"), item(`${SITE}/Website/Data/Navigation`, "Navigation"),
+    item("/sitecore/media library", "Main section"), item("/sitecore/media library/Project", "Media folder"), item(MEDIA, "Media folder"),
+    item(`${MEDIA}/Images`, "Media folder"), item(DEMO_PATHS.newImage, "Jpeg"), item(`${MEDIA}/Images/Store front`, "Jpeg"),
   ]
 }
 
-type ExportOp = { plan: Plan; polls: number; chunkSetId: string; chunks: number; copied: Set<number>; completed: boolean }
-type ImportOp = NativeStatus & { polls: number; plan: Plan; file: string; history: { Name: string; Date: string }[] }
+type Packaged = { polls: number; chunkSetId: string; chunks: string[] }
+type Entry = { item: Item; merge: DataTree["mergeStrategy"] }
+type File = { entries: Entry[]; consumed: boolean; polls: number; state?: string; error?: string }
 
-let source = new Map<string, Item>()
-let destination = new Map<string, Item>()
-let exportOps = new Map<string, ExportOp>()
-let blobs = new Map<string, { op: string; polls: number }>()
-let imports: ImportOp[] = []
-
-const key = (path: string) => path.toLowerCase()
-const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString()
+let stores = new Map<string, Map<string, Item>>()
+let packaged = new Map<string, Packaged>()
+let received = new Map<string, Map<number, string>>()
+let files = new Map<string, File>()
 
 /** Resets the sample environments. Called whenever the demo starts. */
 export function resetDemo() {
-  const items = tree()
-  source = new Map(items.map(item => [key(item.path), item]))
-  // The destination is missing the new content, and "Legacy promo" was
+  const items = fullTree()
+  const asStore = (list: Item[]) => new Map(list.map(item => [key(item.path), { ...item }]))
+  // Staging and Production lack the new content, and "Legacy promo" was
   // recreated there by hand, so it has a different ID at the same path.
   const missing = new Set([DEMO_PATHS.newPage, DEMO_PATHS.newFolder, DEMO_PATHS.missingParentPage, DEMO_PATHS.newImage, DEMO_PATHS.failingImport].map(key))
-  destination = new Map(items.filter(item => !missing.has(key(item.path))).map(item => [key(item.path), { ...item }]))
-  destination.get(key(DEMO_PATHS.conflictPage))!.itemId = "ffffeeee-dddd-4ccc-bbbb-aaaa99998888"
-  exportOps = new Map(); blobs = new Map()
-  const done = (name: string, minutes: number, total: number, state = "Finished", errors: string[] | null = null): ImportOp => ({
-    Id: crypto.randomUUID(), SourceName: name, DatabaseName: "master", ConsumedDate: ago(minutes), TransferState: state,
-    Strategy: "KeepExistingItem", TotalItemsCount: total, TransferredItemsCount: state === "Finished" ? total : 0, ValidationErrors: errors,
-    Description: state === "Failed" ? "Sample failure: a required template was missing in the destination." : undefined,
-    polls: 99, plan: { itemPaths: [], scope: "SingleItem", mergeStrategy: "KeepExistingItem" }, file: name,
-    history: [{ Name: "Queued", Date: ago(minutes + 2) }, { Name: "InProgress", Date: ago(minutes + 1) }, { Name: state, Date: ago(minutes) }],
-  })
-  imports = [
-    done("product-pages-sample.raif", 60 * 26, 12),
-    done("navigation-sample.raif", 60 * 3, 3),
-    done("store-locator-sample.raif", 45, 0, "Failed", ["Sample: template {B3C1...} is not present in the destination."]),
-  ]
+  const later = items.filter(item => !missing.has(key(item.path))).map(item => key(item.path) === key(DEMO_PATHS.conflictPage) ? { ...item, id: "ffffeeee-dddd-4ccc-bbbb-aaaa99998888" } : item)
+  stores = new Map([["demo-dev", asStore(items)], ["demo-staging", asStore(later)], ["demo-prod", asStore(later.filter(item => !item.path.includes("/Summer launch")))]])
+  packaged = new Map(); received = new Map(); files = new Map()
 }
 resetDemo()
 
-const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+function store(env: string) {
+  const found = stores.get(env)
+  if (!found) throw new Error("Unknown sample environment.")
+  return found
+}
+let delay = 160
+/** Tests turn the artificial latency off. */
+export const setDemoDelay = (ms: number) => { delay = ms }
+const wait = (ms: number) => ms ? new Promise(resolve => setTimeout(resolve, ms)) : Promise.resolve()
 
-function browse(path: unknown, side: unknown) {
-  const value = typeof path === "string" ? path : "/sitecore/content"
-  if (!/^\/sitecore\/(content|media library)(\/|$)/i.test(value) || value.includes("..")) throw new Error("Choose a content or media-library path.")
-  const store = side === "destination" ? destination : source
-  const parent = store.get(key(value.replace(/\/$/, "")))
-  if (!parent) throw new Error("That content path was not found.")
-  const depth = parent.path.split("/").length
-  const children = [...store.values()].filter(item => item.path.toLowerCase().startsWith(key(parent.path) + "/") && item.path.split("/").length === depth + 1)
-  const shape = (item: Item) => ({ itemId: item.itemId, name: item.name, path: item.path, template: { name: item.template }, fields: { nodes: item.fields.map(name => ({ name })) } })
-  return { parent: shape(parent), nodes: children.map(shape), pageInfo: { hasNextPage: false } }
+function within(trees: DataTree[], items: Iterable<Item>): Entry[] {
+  return [...items].flatMap(item => {
+    const tree = trees.find(t => key(item.path) === key(t.itemPath) || (t.scope === "ItemAndDescendants" && key(item.path).startsWith(key(t.itemPath) + "/")))
+    return tree ? [{ item, merge: tree.mergeStrategy }] : []
+  })
 }
 
-/** Mirrors the real preflight: fail closed on a different ID or a missing parent. */
-function preflightOne(path: string) {
-  const sourceItem = source.get(key(path))
-  if (!sourceItem) throw new Error("Source item was not found")
-  const targetItem = destination.get(key(path)) ?? null
-  if (targetItem && targetItem.itemId !== sourceItem.itemId) throw new Error("Destination item at the same path has a different Sitecore item ID")
-  const segments = path.split("/").filter(Boolean)
-  const parentChecks = []
-  for (let i = 2; i < segments.length; i++) {
-    const parent = "/" + segments.slice(0, i).join("/")
-    const a = source.get(key(parent)); const b = destination.get(key(parent))
-    if (!a || !b) throw new Error(`Missing required parent in one environment: ${parent}`)
-    parentChecks.push({ path: parent, sourceId: a.itemId, destinationId: b.itemId })
-  }
-  return { sourceItem: { itemId: sourceItem.itemId, path: sourceItem.path }, targetItem: targetItem && { itemId: targetItem.itemId, path: targetItem.path }, parentChecks, checkedAt: new Date().toISOString(), ready: true as const }
-}
-
-function plan(value: unknown): Plan {
-  const input = value as Plan | undefined
-  if (!input || !Array.isArray(input.itemPaths) || input.itemPaths.length < 1 || input.itemPaths.length > 20) throw new Error("Select between 1 and 20 content roots.")
-  return input
-}
-
-function itemsIn(p: Plan) {
-  return [...source.values()].filter(item => p.itemPaths.some(root => key(item.path) === key(root) || (p.scope === "ItemAndDescendants" && key(item.path).startsWith(key(root) + "/"))))
-}
-
-function apply(p: Plan) {
-  let written = 0
-  for (const item of itemsIn(p)) {
-    const existing = destination.get(key(item.path))
-    if (existing && p.mergeStrategy === "KeepExistingItem") continue
-    destination.set(key(item.path), { ...item }); written++
-  }
-  return written
-}
-
-function history() {
-  const current = imports.map(status)
-  const records: HistoryRecord[] = imports.map(op => ({ Name: op.Id, SourceName: op.SourceName, ConsumeDate: op.ConsumedDate, Strategy: op.Strategy, Events: op.history }))
-  return { current: [...current].reverse(), history: [...records].reverse(), totalCount: imports.length, page: 1 }
-}
-
-function status(op: ImportOp): NativeStatus {
-  return { Id: op.Id, SourceName: op.SourceName, DatabaseName: op.DatabaseName, ConsumedDate: op.ConsumedDate, TransferState: op.TransferState, Strategy: op.Strategy,
-    Description: op.Description, TotalItemsCount: op.TotalItemsCount, TransferredItemsCount: op.TransferredItemsCount, ValidationErrors: op.ValidationErrors }
-}
-
-/** Handles one app action exactly as /api/sitecore would, but in memory. */
-export async function demoAction<T>(action: string, body: Record<string, unknown>): Promise<T> {
-  await wait(Number(body.__delay ?? 180))
-  return run(action, body) as T
-}
-
-function run(action: string, body: Record<string, unknown>): unknown {
-  switch (action) {
-    case "history": return Number(body.page ?? 1) > 1 ? { current: [], history: [], totalCount: imports.length, page: body.page } : history()
-    case "detail": {
-      const op = imports.find(row => row.Id === body.id)
-      if (!op) throw new Error("SitecoreAI could not find that transfer.")
-      return status(op)
-    }
-    case "items": return browse(body.path, body.side)
-    case "preflight": return plan(body.plan).itemPaths.map(preflightOne)
-    case "start": {
-      const p = plan(body.plan)
-      if (body.approved !== true || (p.mergeStrategy === "OverrideExistingItem" && body.overwriteApproved !== true)) throw new Error("Review and approve the destination changes first.")
-      p.itemPaths.forEach(preflightOne)
-      const operationId = crypto.randomUUID()
-      exportOps.set(operationId, { plan: p, polls: 0, chunkSetId: crypto.randomUUID(), chunks: Math.max(1, Math.ceil(itemsIn(p).length / 2)), copied: new Set(), completed: false })
-      return { operationId }
-    }
-    case "exportStatus": {
-      const op = exportOps.get(String(body.operationId))
-      if (!op) return { State: "NotFound" }
-      op.polls++
-      return op.polls < 2 ? { State: "Running" } : { State: "Completed", ChunkSetsMetadata: [{ ChunkSetId: op.chunkSetId, ChunkCount: op.chunks }] }
-    }
-    case "copyChunk": {
-      const op = exportOps.get(String(body.operationId))
-      if (!op || body.chunkSetId !== op.chunkSetId || !Number.isInteger(body.chunk) || Number(body.chunk) >= op.chunks) throw new Error("Source chunk is missing binary data or its IsMedia flag.")
-      op.copied.add(Number(body.chunk))
-      return { copied: true }
-    }
-    case "completeChunkSet": {
-      const op = exportOps.get(String(body.operationId))
-      if (!op || op.copied.size !== op.chunks) throw new Error("Destination returned no transfer file.")
-      op.completed = true
-      const file = `${body.operationId}.raif`
-      blobs.set(file, { op: String(body.operationId), polls: 0 })
-      return { ContentTransferFileName: file }
-    }
-    case "blobStatus": {
-      const blob = blobs.get(String(body.file))
-      if (!blob) throw new Error("Destination file: not found")
-      blob.polls++
-      return { BlobState: blob.polls < 2 ? "Processing" : "Uploaded" }
-    }
-    case "import": {
-      const blob = blobs.get(String(body.file))
-      if (!blob || blob.polls < 2) throw new Error("The destination file is not ready to import.")
-      const op = exportOps.get(blob.op)!
-      const now = new Date().toISOString()
-      imports.push({ Id: crypto.randomUUID(), SourceName: String(body.file), DatabaseName: "master", ConsumedDate: now, TransferState: "Queued", Strategy: op.plan.mergeStrategy,
-        TotalItemsCount: itemsIn(op.plan).length, TransferredItemsCount: 0, ValidationErrors: null, polls: 0, plan: op.plan, file: String(body.file), history: [{ Name: "Queued", Date: now }] })
-      return { started: true, file: body.file }
-    }
-    case "importStatus": {
-      const op = imports.find(row => row.Id === body.importId) ?? imports.find(row => row.file === body.file)
-      if (!op) return { TransferState: "Queued" }
-      if (op.polls++ > 10) return status(op)
-      const now = new Date().toISOString()
-      if (op.TransferState === "Queued") { op.TransferState = "InProgress"; op.TransferredItemsCount = Math.floor((op.TotalItemsCount ?? 0) / 2); op.history.push({ Name: "InProgress", Date: now }) }
-      else if (op.TransferState === "InProgress") {
-        if (op.plan.itemPaths.some(path => key(path) === key(DEMO_PATHS.failingImport))) {
-          op.TransferState = "Failed"; op.ValidationErrors = ["Sample: field \"Body\" failed destination validation on Broken import."]
-          op.Description = "Sample failure to show how errors look."
-        } else {
-          op.TransferredItemsCount = apply(op.plan); op.TransferState = "Finished"
-        }
-        op.history.push({ Name: op.TransferState, Date: now })
+export const demoBackend: Backend = {
+  get pollMs() { return delay ? 350 : 0 },
+  async children(env, path) {
+    await wait(delay)
+    const items = store(env)
+    const parent = items.get(key(path))
+    if (!parent) throw new Error("That folder doesn’t exist in this environment.")
+    const depth = parent.path.split("/").length
+    const all = [...items.values()]
+    return all.filter(item => key(item.path).startsWith(key(parent.path) + "/") && item.path.split("/").length === depth + 1)
+      .map((item): TreeNode => ({ id: item.id, name: item.name, path: item.path, template: item.template, hasChildren: all.some(other => key(other.path).startsWith(key(item.path) + "/")) }))
+  },
+  async item(env, path) {
+    await wait(delay / 4)
+    const found = store(env).get(key(path))
+    return found ? { id: found.id, path: found.path } : null
+  },
+  async createTransfer(env, transferId, trees) {
+    await wait(delay)
+    const entries = within(trees, store(env).values())
+    // Two items per chunk; each chunk is the JSON the destination will import.
+    const chunks: string[] = []
+    for (let index = 0; index < Math.max(1, entries.length); index += 2) chunks.push(JSON.stringify(entries.slice(index, index + 2)))
+    packaged.set(`${env}:${transferId}`, { polls: 0, chunkSetId: crypto.randomUUID(), chunks })
+  },
+  async transferStatus(env, transferId) {
+    await wait(delay)
+    const op = packaged.get(`${env}:${transferId}`)
+    if (!op) return { state: "NotFound", chunkSets: [] }
+    if (op.polls++ < 1) return { state: "Running", chunkSets: [] }
+    const total = op.chunks.reduce((sum, chunk) => sum + (JSON.parse(chunk) as Entry[]).length, 0)
+    return { state: "Completed", chunkSets: [{ chunkSetId: op.chunkSetId, chunkCount: op.chunks.length, totalItemCount: total }] }
+  },
+  async getChunk(env, transferId, chunkSetId, chunkId) {
+    await wait(delay)
+    const op = packaged.get(`${env}:${transferId}`)
+    if (!op || op.chunkSetId !== chunkSetId || !op.chunks[chunkId]) throw new Error(`Chunk ${chunkId} came back empty.`)
+    return new Blob([op.chunks[chunkId]], { type: "application/octet-stream" })
+  },
+  async saveChunk(env, transferId, chunkSetId, chunkId, chunk) {
+    await wait(delay)
+    store(env)
+    const id = `${env}:${transferId}:${chunkSetId}`
+    const chunks = received.get(id) ?? new Map<number, string>()
+    chunks.set(chunkId, await chunk.text())
+    received.set(id, chunks)
+  },
+  async completeChunkSet(env, transferId, chunkSetId) {
+    await wait(delay)
+    const chunks = received.get(`${env}:${transferId}:${chunkSetId}`)
+    if (!chunks?.size) throw new Error("The destination returned no transfer file.")
+    const file = `${transferId}.raif`
+    const entries = [...chunks.keys()].sort((a, b) => a - b).flatMap(index => JSON.parse(chunks.get(index)!) as Entry[])
+    files.set(`${env}:${file}`, { entries, consumed: false, polls: 0 })
+    return file
+  },
+  async deleteTransfer(env, transferId) {
+    packaged.delete(`${env}:${transferId}`)
+  },
+  async consumeFile(env, file) {
+    await wait(delay)
+    const found = files.get(`${env}:${file}`)
+    if (!found) throw new Error("The transfer file does not exist on the destination.")
+    found.consumed = true
+  },
+  async blobState(env, file) {
+    await wait(delay)
+    const found = files.get(`${env}:${file}`)
+    if (!found) return { state: "Error", error: "BlobNotFound" }
+    if (!found.consumed || found.polls++ < 1) return { state: "Processing" }
+    if (!found.state) {
+      if (found.entries.some(entry => key(entry.item.path) === key(DEMO_PATHS.failingImport))) {
+        found.state = "Error"; found.error = "Sample failure: field “Body” failed validation on Broken import"
+      } else {
+        const items = store(env)
+        for (const { item, merge } of found.entries) if (!items.has(key(item.path)) || merge === "OverrideExistingItem") items.set(key(item.path), { ...item })
+        found.state = "Transferred"
       }
-      return status(op)
     }
-    case "test": return { ok: true }
-    default: throw new Error("Unsupported SitecoreAI operation.")
-  }
+    return { state: found.state, ...(found.error ? { error: found.error } : {}) }
+  },
 }

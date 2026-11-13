@@ -19,7 +19,6 @@
   },
   "include": [
     "scripts/worker.ts",
-    "src/lib/browser-session.ts",
     "src/lib/sitecore/*.ts",
     "src/lib/db/postgrest.ts"
   ],

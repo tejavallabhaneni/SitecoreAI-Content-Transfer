@@ -1,31 +1,24 @@
 # SitecoreAI Content Transfer
 
-[Launch the app](https://sitecoreai-ae-content-transfer-app.vercel.app) · [Deployment](docs/DEPLOYMENT.md)
+[Open the app](https://sitecoreai-ae-content-transfer-app.vercel.app) · [Deployment](docs/DEPLOYMENT.md)
 
-A public Next.js application for transferring content between **your own** SitecoreAI authoring environments. It retains the dashboard, content browser, transfer wizard, environment cards and job-detail views.
+A simple SitecoreAI Marketplace app for copying pages and media from one SitecoreAI environment to another. It shows both environments' content trees side by side, checks every item before anything is written, and uses Sitecore's own Content Transfer API, so item IDs stay the same.
+
+## How to use it
+
+1. **Install the app in every environment.** In the Sitecore Cloud Portal, open App Studio and install Content Transfer. Give it access to each environment you want to copy between.
+2. **Open it and pick From and To.** Open Content Transfer from SitecoreAI. It lists the environments it's installed in.
+3. **Tick what to copy.** Open folders in the From tree and tick pages or media. Badges show what's **New** in To, what already **Exists**, and what has a **different ID**. The To tree shows what's there now.
+4. **Review and start.** The check shows what will happen to each item: Create, Update, Skip or Conflict, with how to fix a conflict. Approve, start, and follow the progress. Then publish in the destination through your normal workflow.
+
+Opened outside SitecoreAI, the app shows these steps and an offline demo with three sample environments. The demo never contacts Sitecore.
 
 ## How it works
 
-1. Open **Environments**. The preferred **Sign in with Sitecore** integration is prepared but awaits app registration and live API compatibility validation. The advanced connection option accepts automation credentials for two authoring environments you are authorized to manage. The native transfer APIs require an Organization Admin or Owner role.
-2. Browse source content, select up to 20 roots, and choose single-item or subtree scope.
-3. Choose **Keep existing items** (default) or **Overwrite matching items**.
-4. Review the plan and verify destination parent-item IDs.
-5. Explicitly approve the transfer. The server checks the parent IDs again before exporting.
-6. Keep the tab open while it polls the export and forwards binary chunks to the destination.
-7. Monitor the destination import and follow your normal publishing workflow afterward.
-
-Native transfer preserves item IDs and fields. It does not generate AI field mappings. Destructive tree replacement, publishing, and delete operations are not exposed.
-
-## Data and history
-
-- No application database, external job store, or content archive is required.
-- Optional Sitecore sign-in uses the official Auth0 React SDK with an in-memory token cache and Authorization Code with PKCE. See [Sitecore sign-in setup](docs/SITECORE_SIGN_IN.md) for registration, scope and compatibility requirements. OAuth redirect transaction state is temporary browser protocol state, not saved customer data.
-- Client secrets are exchanged with Sitecore and cleared from the form on successful connection.
-- Access tokens, draft plans and forwarding progress exist only in the current tab's memory. The app does not write them to browser storage, cookies or files. Reloading/closing the tab clears them.
-- A stateless server endpoint authenticates each request with the calling user's token. It never falls back to the installation owner's credentials.
-- Destination status comes from `/sitecore/shell/api/v3/ItemsTransfer/transfers`; state-change history comes from `/sitecore/shell/api/v3/ItemsTransfer/history`.
-- Sitecore history covers destination imports, including imports created outside this app. It does **not** retain the source environment, friendly draft names, or every export/chunk step. Missing information is shown as unavailable.
-- History and item browsing are paginated/bounded. The item browser shows one folder plus its first 50 children; enter an exact path to reach deeper items.
+- SitecoreAI tells the app which environments it's installed in (`application.context` → `resourceAccess`). Every call goes through the Marketplace SDK, addressed by the environment's context ID. There are no credentials, sign-in pages or OAuth callbacks.
+- Trees and checks use the Authoring GraphQL API (`xmc.authoring.graphql`). Transfers use the Content Transfer API (`xmc.contentTransfer.*`): the source packages the items, each chunk is copied to the destination, and the destination imports the file into **master**. Media and content travel in separate transfers, and the source transfer is always removed afterwards.
+- A transfer is blocked when an item has a different ID at the same path, or a parent folder is missing or has a different ID, because those would orphan imported items. The check runs again right before the transfer starts.
+- Nothing is stored outside SitecoreAI. Plans and progress live in the current tab and clear on reload. Publishing, deleting and replacing whole trees are not available.
 
 ## Local development
 
@@ -36,7 +29,7 @@ npm ci
 npm run dev
 ```
 
-No GitHub OAuth, PostgreSQL or shared Sitecore installation secrets are needed to launch the public UI. Enabling Sitecore sign-in requires the one-time public SPA client configuration described in docs/SITECORE_SIGN_IN.md; it is not configured by default. The advanced environment-credential form remains available. `APP_BASE_URL` is optional; if set, it must match the deployed origin.
+Outside SitecoreAI the app runs in demo mode. To use real environments, register it as a custom app in App Studio with SitecoreAI APIs enabled, point it at your deployment, and open it from SitecoreAI.
 
 ```sh
 npm run lint
@@ -47,15 +40,13 @@ node --test tests/*.test.cjs
 npm run build
 ```
 
-`build:worker` compiles the API modules for the Node contract tests and retains compatibility with the old optional worker. The public app does not run that worker.
+`build:worker` compiles the legacy worker modules for their contract tests. The app itself doesn't run that worker.
 
-## Current validation limits
+## Validation limits
 
-Automated tests exercise mocked Sitecore APIs, connection isolation, parent checks, history parsing and binary forwarding. A real two-environment transfer has not been validated for this revision. Start with a small non-production content root before broad adoption.
+Automated tests cover the review outcomes, approvals, the Content Transfer call order, media/content separation, clean-up after failures and failed imports, using the offline demo and a recording fake. A real transfer between two SitecoreAI environments through the Marketplace SDK has not been validated yet. Start with a small item in non-production environments.
 
-The browser coordinates the phases. Closing it can stop forwarding; an import already accepted by Sitecore can continue. A failed write is not retried automatically because its outcome may be uncertain. Check native status before starting another operation. Very large chunks remain subject to hosting duration and memory limits. Source export resources and destination `.raif` files are retained; the app does not delete them automatically.
-
-Legacy database/worker modules remain in source for reference, with their database-backed HTTP routes retired. They are not part of the public workflow. No existing content or database records are deleted by this change.
+Keep the tab open while chunks are copied; an import already accepted by Sitecore continues on its own. Failed writes aren't retried automatically, because their outcome may be uncertain.
 
 ## Contributions
 

@@ -1,6 +1,5 @@
-import { JobsDashboard } from "@/components/jobs-dashboard"
+import { TransferHome } from "@/components/transfer-home"
 
 export default function HomePage() {
-  return <JobsDashboard />
+  return <TransferHome />
 }
-
